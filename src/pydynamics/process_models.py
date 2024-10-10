@@ -40,13 +40,13 @@ class FOPDT():
       u = self.u
     
     uf = interp1d(t, u)
-    
     ym = np.zeros(len(t))
 
     for i in range(0, len(t)-1):
       ts=[t[i], t[i+1]]
       y1 = odeint(self.model, ym[i], ts, args=(uf, Km, taum, thetam))[-1].item()
       ym[i+1] = y1
+
     return ym
 
   def objective(self, params):
@@ -64,25 +64,26 @@ class FOPDT():
     """
     Generate a step response plot for a FOPDT model with the given params
     """
+    params = self.params_opt
     Km = params[0]
     taum = params[1]
     thetam = params[2]
-    ts = np.arange(-taum, 10*taum)
+    ts = np.arange(-taum, 5*taum)
 
     us = np.zeros((len(ts)))
-    us[taum:] = 1
+    us[np.int8(taum)+1:] = 1
 
-    y = self.simulate(self.params_opt, ts, us)
+    y = self.simulate(params, ts, us)
     plt.figure()
     plt.subplots(2,1, sharex=True)
-    
+
     plt.subplot(211)
     plt.plot(ts, y)
     plt.grid()
     plt.ylabel("Output")
-    
     plt.subplot(212)
     plt.plot(ts, us)
+    plt.grid()
 
 
   def fit_model(self, plot_result=False):
@@ -94,14 +95,14 @@ class FOPDT():
     self.result = result
   
     if plot_result:
+
       plt.figure()
       plt.subplots(2,1, sharex=True)
       plt.suptitle("model fit")
       
       plt.subplot(211)
-      plt.plot(self.t, self.y)
-      plt.plot(self.t, result["y_pred"], 'k')
-      plt.title(f"R_2 = {result["R2"]}")
+      plt.plot(self.t, self.y, linewidth=2)
+      plt.plot(self.t, result["y_pred"], 'k--')
       plt.grid()
       plt.title("Output")
       plt.ylabel("Change in output")
