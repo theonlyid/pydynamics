@@ -6,3 +6,11 @@
 Author: Ali Zaidi
 
 version: 0.0.1
+
+## Installation
+
+1. activate your preferred conda / pyenv environment
+
+2. Go to root folder, do pip install
+
+$ pip install .
