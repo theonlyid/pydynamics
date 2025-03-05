@@ -2,3 +2,4 @@ build/
 pydynamics.egg-info/
 data/
 test*
+src/pydynamics/__pycache__/
