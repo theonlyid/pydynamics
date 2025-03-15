@@ -7,6 +7,8 @@ from scipy.optimize import minimize
 from scipy.interpolate import interp1d
 from scipy import stats
 
+import pickle
+
 Data = namedtuple("Data", ["ts", "y", "u"])
 Data.__doc__ = "A data container for time series data. Contains time (ts), output (y), and input (u) data."
 
@@ -252,6 +254,19 @@ class ProcessModel:
     p_value = 2 * (1 - stats.t.cdf(np.abs(t_value), n1 + n2 - 2))
 
     return t_value, p_value
+  
+  def save_model(self, filename):
+    """
+    Save the model object to a file using pickle.
+
+    Args:
+      filename (str): The name of the file to save the model object to.
+
+    Returns:
+      None
+    """
+    with open(filename, 'wb') as file:
+      pickle.dump(self, file)
 
 
   def plot_confidence_intervals(self):

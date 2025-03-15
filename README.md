@@ -1,8 +1,8 @@
-# PyDynamic
+# PyDynamics
 
 ## A Python package for analysis of timeseries data using dynamical systems and differential equations
 
-PyDynamic is a Python package designed to facilitate the analysis of timeseries data through the application of dynamical systems and differential equations. This package provides tools for modeling, simulating, and analyzing complex systems that evolve over time.
+PyDynamics is a Python package designed to facilitate the analysis of timeseries data through the application of dynamical systems and differential equations. This package provides tools for modeling, simulating, and analyzing complex systems that evolve over time.
 
 Author: Ali Zaidi
 
@@ -12,10 +12,12 @@ Version: 0.0.1
 
 - Model timeseries data using differential equations
 - Simulate the behavior of dynamical systems
-- Analyze stability and bifurcations in systems
+- Estimate parameters, variance and likelihood (p-values, t-test)
 - Visualize timeseries data and system trajectories
 
 ## Installation
+
+0. Clone the repo by running `$git clone https://github.com/theonlyid/pydynamics.git`. This is the best option. Alternatively use Github Desktop to download the repo. You can also download the code using the browser, but this won't allow you to pull updates.
 
 1. Activate your preferred conda or pyenv environment.
 
