@@ -33,62 +33,292 @@ from collections import namedtuple
 from scipy.integrate import odeint
 from scipy.optimize import minimize
 from scipy.interpolate import interp1d
-
-#TODO: Generate Results class with named tuples
+from scipy import stats
 
 Data = namedtuple(&#34;Data&#34;, [&#34;ts&#34;, &#34;y&#34;, &#34;u&#34;])
+Data.__doc__ = &#34;A data container for time series data. Contains time (ts), output (y), and input (u) data.&#34;
+
 Params = namedtuple(&#34;Params&#34;, [&#34;K&#34;, &#34;tau&#34;, &#34;theta&#34;, &#34;zeta&#34;])
-Result = namedtuple(&#34;Result&#34;, [&#34;p_opt&#34;, &#34;p_cov&#34;, &#34;r_square&#34;, &#34;y_hat&#34;, &#34;resid&#34;])
+Params.__doc__ = &#34;A parameter container for process models. Contains the parameters K, tau, theta, and zeta.&#34;
+
+Result = namedtuple(&#34;Result&#34;, [&#34;p_opt&#34;, &#34;p_cov&#34;, &#34;p_val&#34;, &#34;r_square&#34;, &#34;y_hat&#34;, &#34;resid&#34;, &#34;RMSE&#34;])
+Result.__doc__ = &#34;A result container for process model fitting. Contains the optimized parameters, covariance, p-values, R-squared value, model predictions, residuals, and RMSE.&#34;
 
 class ProcessModel:
-  &#34;Base model class that handles the fitting and plotting for various process models&#34;
+  &#34;&#34;&#34;
+  Base model class that handles the fitting and plotting for various process models.
+  Attributes:
+    Data (Data): An instance of the Data class containing time (t), output (y), and input (u) data.
+    uf (interp1d): Interpolated function of the input data.
+  Methods:
+    __init__(t, y, u):
+      Initializes the ProcessModel with time, output, and input data.
+    objective(params):
+      Computes the objective function (sum of squared errors) for given parameters.
+    fit_params(init_guess=None):
+      Fits the model parameters using optimization and returns the optimal parameters.
+    fit_model(plot_result=False, plot_diagnostics=False):
+      Fits the model, computes residuals, mean squared error, and R-squared value. Optionally plots the results and diagnostics.
+    jacobian(params) -&gt; np.ndarray:
+      Computes the Jacobian matrix for the given parameters.
+    estimate_confidence_intervals(params):
+      Estimates the 95% confidence intervals for the model parameters.
+    plot_confidence_intervals():
+      Plots the model fit along with the 95% confidence intervals.
+    step(params=None, step=1):
+      Generates a step response plot for a First Order Plus Dead Time (FOPDT) model with the given parameters.
+    plot_results():
+      Plots the model fit results, including prediction intervals and observed data.
+    diagnostics(plot=True):
+      Computes and optionally plots diagnostic metrics such as autocorrelation and cross-correlation of residuals.
+  &#34;&#34;&#34;
 
   def __init__(self, t, y, u):
-    self.t = t
-    self.y = y
-    self.u = u
+    &#34;&#34;&#34;
+    Initialize the process model with time, output, and input data.
+
+    Parameters:
+    t (array-like): Array of time points.
+    y (array-like): Array of output data corresponding to the time points.
+    u (array-like): Array of input data corresponding to the time points.
+    &#34;&#34;&#34;
+    self.Data = Data(t, y, u)
     self.uf = interp1d(t, u)
 
   def objective(self, params):
+    &#34;&#34;&#34;
+    Calculate the objective function value for given parameters.
+
+    This function simulates the model with the provided parameters and computes
+    the sum of squared differences between the simulated output and the actual data.
+
+    Parameters:
+    params (array-like): The parameters to be used for simulation.
+
+    Returns:
+    float: The sum of squared differences between the simulated output and the actual data.
+    &#34;&#34;&#34;
     ym = self.simulate(params)
-    return np.sum((ym -self.y)**2)
+    return np.sum((ym - self.Data.y) ** 2)
 
   def fit_params(self, init_guess=None):
+    &#34;&#34;&#34;
+    Fit the parameters of the model using optimization.
+
+    Parameters:
+    -----------
+    init_guess : array-like, optional
+      Initial guess for the parameters. If None, an array of ones with the same shape as `self.params` is used.
+
+    Returns:
+    --------
+    p_opt : array-like
+      Optimized parameters.
+    &#34;&#34;&#34;
     if init_guess is None:
       init_guess = np.ones(self.params.shape)
     solution = minimize(self.objective, init_guess, bounds=self.bounds)
     p_opt = solution.x
     return p_opt
-  
-  def fit_model(self, plot_result=False):
-    result = dict()
-    result[&#34;soln&#34;] = self.fit_params()
-    result[&#34;y_pred&#34;] = self.simulate(result[&#34;soln&#34;])
-    result[&#34;mse&#34;] = self.objective(result[&#34;soln&#34;])/len(self.y)
-    result[&#34;R2&#34;] = 1 - (np.var(self.y - result[&#34;y_pred&#34;])/np.var(self.y))
-    self.result = result
-  
+
+  def fit_model(self, plot_result=False, plot_diagnostics=False):
+    &#34;&#34;&#34;
+    Fits the model to the data, computes residuals, RMSE, R-squared value, and parameter statistics.
+    Parameters:
+    -----------
+    plot_result : bool, optional
+      If True, plots the model results. Default is False.
+    plot_diagnostics : bool, optional
+      If True, plots diagnostic information. Default is False.
+    Returns:
+    --------
+    Result
+      An object containing the fitted parameters, their covariance, p-values, R-squared value, 
+      model predictions, residuals, and RMSE.
+    Notes:
+    ------
+    This method performs the following steps:
+    1. Fits the model parameters using `fit_params`.
+    2. Simulates the model predictions using `simulate`.
+    3. Computes the residuals, RMSE, and R-squared value.
+    4. Estimates the covariance of the parameters using `estimate_covariance`.
+    5. Computes the p-values of the parameters using `pvalue`.
+    6. Stores the results in a `Result` object.
+    7. Optionally plots the results and diagnostics if `plot_result` or `plot_diagnostics` are True.
+    &#34;&#34;&#34;
+    p_opt = self.fit_params() # fit the model
+    y_hat = self.simulate(p_opt, self.Data.ts, self.Data.u) # generate model predictions
+    resid = self.Data.y - y_hat # compute residuals
+    rmse  = np.sqrt(np.sum(resid**2) / len(self.Data.y)) # compute RMSE
+    r_square = 1 - (np.var(self.Data.y - y_hat) / np.var(self.Data.y)) # compute R-squared value
+    self.result = Result(p_opt=p_opt, p_cov=None, p_val=None, r_square=r_square, y_hat=y_hat, resid=resid, RMSE=rmse)
+    p_cov = self.estimate_covariance(p_opt)
+    p_val = self.pvalue(p_opt, p_cov)
+    self.result = Result(p_opt=p_opt, p_cov=p_cov, p_val=p_val, r_square=r_square, y_hat=y_hat, resid=resid, RMSE=rmse)
+
     if plot_result:
       self.plot_results()
+    
+    if plot_diagnostics:
+      self.diagnostics()
+    return self.result
 
-    self.result = result
-    return result
+  def jacobian(self, params) -&gt; np.ndarray:
+    K, tau, theta = params
+    uf = interp1d(self.Data.ts, self.Data.u, fill_value=&#34;extrapolate&#34;)
+    J = np.zeros((len(self.Data.ts), 3))
+    dt = self.Data.ts[1] - self.Data.ts[0]
+
+    for i, t in enumerate(self.Data.ts):
+      if t - theta &lt;= 0:
+        u_delayed = 0
+        u_derivative = 0
+      else:
+        u_delayed = uf(t - theta)
+        u_derivative = (uf(t - theta + dt) - uf(t - theta)) / dt
+
+      J[i, 0] = u_delayed / tau
+      J[i, 1] = -(K * u_delayed - self.Data.y[i]) / tau ** 2
+      J[i, 2] = -(K / tau) * u_derivative
+
+    return J
+  
+
+  def estimate_covariance(self, params):
+    &#34;&#34;&#34;
+    Estimate the covariance matrix of the parameters.
+    Parameters:
+    -----------
+    params : array-like
+      The parameters for which the covariance matrix is to be estimated.
+    Returns:
+    --------
+    C : ndarray or None
+      The estimated covariance matrix of the parameters. If the Jacobian is singular,
+      returns None and prints an error message.
+    Notes:
+    ------
+    The covariance matrix is estimated using the residuals from the model and the Jacobian
+    of the parameters. If the Jacobian is singular, the function will not be able to compute
+    the covariance matrix and will return None.
+    &#34;&#34;&#34;
+
+    res = self.result.resid
+    sigma2 = np.sum(res ** 2) / (len(self.Data.ts) - len(params))
+    J = self.jacobian(params)
+
+    # Covariance matrix
+    try:
+      C = sigma2 * np.linalg.inv(J.T @ J)
+    except np.linalg.LinAlgError:
+      print(&#34;Jacobian is singular. Cannot compute confidence intervals.&#34;)
+      return None
+
+    # Standard errors
+    return C
+  
+  def estimate_confidence_intervals(self, p_cov):
+    &#34;&#34;&#34;
+    Compute 95% confidence intervals of MLE parameters from the covariance matrix.
+
+    Args:
+      p_cov (np.ndarray): Covariance matrix of the parameters.
+
+    Returns:
+      confidence_intervals (list): List of tuples containing the lower and upper bounds of the confidence intervals for each parameter.
+
+    &#34;&#34;&#34;
+    
+    se = np.sqrt(np.diag(p_cov))
+    p_opt = self.result.p_opt
+
+    # 95% Confidence intervals
+    confidence_intervals = []
+
+    for i in range(len(p_opt)):
+      lower = p_opt[i] - 1.96 * se[i]
+      upper = p_opt[i] + 1.96 * se[i]
+      confidence_intervals.append((lower, upper))
+    return confidence_intervals
+
+  def pvalue(self, params, p_cov):
+    &#34;&#34;&#34;
+    Compute the p-values for the model parameters.
+
+    Args:
+      params (np.ndarray): Model parameters.
+      p_cov (np.ndarray): Covariance matrix of the parameters.
+
+    Returns:
+      p_values (np.ndarray): Array of p-values for each parameter.
+
+    &#34;&#34;&#34;
+    se = np.sqrt(np.diag(p_cov))
+    t_values = params / se
+    p_values = 2 * (1 - stats.t.cdf(np.abs(t_values), len(self.Data.ts) - len(params)))
+    return p_values
+
+
+  def plot_confidence_intervals(self):
+    &#34;&#34;&#34;
+    Plots the observed data, the best fit model, and the 95% confidence intervals for the model predictions.
+    This method uses the time series data, the observed response, and the predicted response from the model.
+    It calculates the confidence intervals based on the covariance of the parameter estimates and simulates
+    the response using the lower and upper bounds of the confidence intervals. The plot includes the observed
+    data points, the best fit model line, and a shaded area representing the 95% confidence interval.
+    &#34;&#34;&#34;
+    t = self.Data.ts
+    u = self.Data.u
+    y_true = self.Data.y  # Observed data
+    y_pred = self.result.y_hat
+    params = self.result.p_opt
+    ci = self.ci_from_cov(self.result.p_cov)
+
+    # Simulate using confidence interval bounds
+    params_lower = [ci[i][0] for i in range(len(params))]
+    params_upper = [ci[i][1] for i in range(len(params))]
+    y_lower = self.simulate(params_lower, self.Data.ts, self.Data.u)
+    y_upper = self.simulate(params_upper, self.Data.ts, self.Data.u)
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(t, y_true, &#39;ko&#39;, markersize=3, label=&#34;Observed Data&#34;)
+    plt.plot(t, y_pred, &#39;r-&#39;, label=&#34;Best Fit Model&#34;)
+    plt.fill_between(t, y_lower, y_upper, color=&#39;red&#39;, alpha=0.3, label=&#34;95% Confidence Interval&#34;)
+
+    plt.xlabel(&#34;Time (s)&#34;)
+    plt.ylabel(&#34;Response y(t)&#34;)
+    plt.title(&#34;Model Fit with Confidence Interval&#34;)
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
   def step(self, params=None, step=1):
     &#34;&#34;&#34;
-    Generate a step response plot for a FOPDT model with the given params
+    Generate a step response plot for a First Order Plus Dead Time (FOPDT) model with the given parameters.
+    Parameters:
+    params (list or None): Parameters for the FOPDT model. If None, uses self.result.p_opt.
+    step (int): The step input value. Default is 1.
+    Returns:
+    None: This function generates and displays a plot.
+    The function performs the following steps:
+    1. If params is None, it assigns self.result.p_opt to params.
+    2. Extracts the time constant (taum) from params.
+    3. Creates a time array (ts) ranging from -taum to 5 * taum.
+    4. Initializes an input array (us) with zeros and sets the step input after taum.
+    5. Simulates the FOPDT model response using the given parameters, time array, and input array.
+    6. Plots the output response and input signal on two subplots.
     &#34;&#34;&#34;
     if params is None:
-      params = self.result[&#34;soln&#34;]
+      params = self.result.p_opt
     taum = params[1]
-    ts = np.arange(-taum, 5*taum)
+    ts = np.arange(-taum, 5 * taum)
 
     us = np.zeros((len(ts)))
-    us[np.int8(taum)+1:] = step
+    us[np.int8(taum) + 1:] = step
 
     y = self.simulate(params, ts, us)
     plt.figure()
-    plt.subplots(2,1, sharex=True)
+    plt.subplots(2, 1, sharex=True)
 
     plt.subplot(211)
     plt.plot(ts, y)
@@ -100,47 +330,107 @@ class ProcessModel:
     plt.grid()
 
   def plot_results(self):
-    plt.subplots(2,1, sharex=True)
-    plt.suptitle(&#34;model fit&#34;)
-    
-    plt.subplot(211)
-    plt.plot(self.t, self.y, linewidth=2)
-    plt.plot(self.t, self.result[&#34;y_pred&#34;], &#39;k--&#39;)
-    plt.grid()
-    plt.title(&#34;Output&#34;)
-    plt.ylabel(&#34;Change in output&#34;)
-    plt.legend([&#34;data&#34;, &#34;model&#34;])
+    &#34;&#34;&#34;
+    Plots the results of the model fit, including the observed data, model predictions, 
+    and prediction intervals.
+    This method generates a plot with two y-axes:
+    - The left y-axis shows the change in output with observed data points, model predictions, 
+      and prediction intervals.
+    - The right y-axis shows the change in input over time.
+    The plot includes:
+    - A title displaying the R-squared value and RMSE of the model fit.
+    - Observed data points as blue dots.
+    - Model predictions as a black line.
+    - 95% prediction intervals as a shaded red area.
+    - Standard error of the mean (SEM) intervals as a shaded red area with higher opacity.
+    - Change in input as a gray line (right axis).
+    The method also adjusts the layout to ensure the right y-label is not clipped.
+    &#34;&#34;&#34;
+    # gather variables
+    ts, ys, us = self.Data
+    res = self.result
 
-    plt.subplot(212)
-    plt.plot(self.t, self.u)
-    plt.grid()
-    plt.title(&#34;Input&#34;)
-    plt.xlabel(&#34;time&#34;)
-    plt.ylabel(&#34;change in input&#34;)
+    # calculate prediction intervals
+    sem = np.sqrt(np.sum((res.resid)**2)/(len(ys)-3))
+    pi95 = 1.96*sem
 
-  def diagnostics(self, resid, plot=True):
+    fig, ax1 = plt.subplots(figsize=(8, 6))
+    plt.title(f&#34;Model fit: Rsq = {res.r_square:0.3f}, RMSE = {res.RMSE:0.3f}&#34;)
 
-    t = self.t
-    dt = t[1]-t[0]
-   
-    res_norm = resid/np.linalg.norm(resid)
-    u_norm = self.u/np.linalg.norm(self.u)
+    color = &#39;tab:blue&#39;
+    ax1.set_xlabel(&#39;time&#39;)
+    ax1.set_ylabel(&#39;Change in output&#39;, color=color)
+    ax1.fill_between(ts, res.y_hat-pi95, res.y_hat+pi95, color=&#39;r&#39;, alpha=0.15)
+    ax1.fill_between(ts, res.y_hat-sem, res.y_hat+sem, color=&#39;r&#39;, alpha=0.2)
+    ax1.plot(ts, ys, &#39;b.&#39;, label=&#39;observations&#39;, alpha=0.6)
+    ax1.plot(ts, res.y_hat, &#39;k&#39;, linewidth=1.5, label=&#39;model&#39;)
+    ax1.tick_params(axis=&#39;y&#39;, labelcolor=color)
+    ax1.legend(loc=&#39;upper left&#39;)
+    ax1.grid()
+
+    ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+    color = &#39;tab:gray&#39;
+    ax2.set_ylabel(&#39;Change in input&#39;, color=color)  # we already handled the x-label with ax1
+    ax2.plot(ts, us, color=color)
+    ax2.tick_params(axis=&#39;y&#39;, labelcolor=color)
+    ax2.set_ylim([min(us)-(0.1*max(us)), 10*max(us)])
+
+    fig.tight_layout()  # otherwise the right y-label is slightly clipped
+    plt.show()
+
+  def diagnostics(self, plot=True):
+    &#34;&#34;&#34;
+    Perform diagnostics on the model&#39;s residuals and input data.
+    This method calculates and prints the mean squared values of the 
+    autocorrelation and cross-correlation functions of the residuals 
+    and their differences. Optionally, it plots these diagnostics.
+    Parameters:
+    -----------
+    plot : bool, optional
+      If True, plots the diagnostics. Default is True.
+    Attributes:
+    -----------
+    cc_means : dict
+      A dictionary containing the mean squared values of the 
+      autocorrelation and cross-correlation functions:
+      - &#34;acf&#34;: Autocorrelation of residuals
+      - &#34;ccf&#34;: Cross-correlation of residuals with input
+      - &#34;acfd&#34;: Autocorrelation of residual differences
+      - &#34;ccfd&#34;: Cross-correlation of residual differences with input
+    Prints:
+    -------
+    Mean squared values of the autocorrelation and cross-correlation 
+    functions.
+    Plots:
+    ------
+    If plot is True, generates the following plots:
+    - Residuals
+    - Autocorrelation of residuals
+    - Cross-correlation of residuals with input
+    - Residual differences
+    - Autocorrelation of residual differences
+    - Cross-correlation of residual differences with input
+    &#34;&#34;&#34;
+    t = self.Data.ts
+    dt = t[1] - t[0]
+    resid = self.result.resid
+    res_norm = resid / np.linalg.norm(resid)
+    u_norm = self.Data.u / np.linalg.norm(self.Data.u)
 
     resd = np.diff(resid)
-    resd_norm = np.diff(resd)/np.linalg.norm(np.diff(resd))
+    resd_norm = np.diff(resd) / np.linalg.norm(np.diff(resd))
 
     acf = np.correlate(res_norm, res_norm, &#39;same&#39;)
-    acf[len(acf)//2] = 0
+    acf[len(acf) // 2] = 0
     ccf = np.correlate(u_norm, res_norm, &#39;same&#39;)
 
     acfd = np.correlate(resd_norm, resd_norm, &#39;same&#39;)
-    acfd[len(acfd)//2] = 0
+    acfd[len(acfd) // 2] = 0
     ccfd = np.correlate(u_norm, resd_norm, &#39;same&#39;)
 
-    self.cc_means = dict({&#34;acf&#34;: np.mean(acf**2), &#34;ccf&#34;: np.mean(ccf**2), &#34;acfd&#34;: np.mean(acfd**2), &#34;ccfd&#34;: np.mean(ccfd**2)})
+    self.cc_means = dict({&#34;acf&#34;: np.mean(acf ** 2), &#34;ccf&#34;: np.mean(ccf ** 2), &#34;acfd&#34;: np.mean(acfd ** 2), &#34;ccfd&#34;: np.mean(ccfd ** 2)})
 
-    print(f&#34;{np.mean(acf**2):0.3f}, {np.mean(ccf**2):0.3f}, {np.mean(acfd**2):0.3f}, {np.mean(ccfd**2):0.3f}&#34;)
-
+    print(f&#34;{np.mean(acf ** 2):0.3f}, {np.mean(ccf ** 2):0.3f}, {np.mean(acfd ** 2):0.3f}, {np.mean(ccfd ** 2):0.3f}&#34;)
 
     if plot:
       plt.subplots(3, 2)
@@ -148,157 +438,197 @@ class ProcessModel:
       plt.plot(resid)
       plt.title(&#34;Residuals&#34;)
       plt.grid()
-      
+
       plt.subplot(323)
       plt.title(&#34;Autocorrelation of Residuals&#34;)
       plt.plot(acf)
       plt.ylim([-1, 1])
       plt.grid()
-      
+
       plt.subplot(325)
       plt.title(&#34;Cross-correlation: Residuals -&gt; input&#34;)
       plt.plot(ccf)
 
-      plt.ylim([-1,1])
+      plt.ylim([-1, 1])
       plt.grid()
 
       plt.subplot(322)
       plt.plot(resd)
       plt.title(&#34;Residual diff&#34;)
       plt.grid()
-      
+
       plt.subplot(324)
       plt.title(&#34;Autocorrelation of Residual diff&#34;)
       plt.plot(acfd)
       plt.ylim([-1, 1])
       plt.grid()
-    
-      
+
       plt.subplot(326)
       plt.title(&#34;Cross-correlation: Residual diff -&gt; input&#34;)
       plt.plot(ccfd)
-      plt.ylim([-1,1])
+      plt.ylim([-1, 1])
       plt.grid()
 
 
 class FOPDT(ProcessModel):
+  &#34;&#34;&#34;&#34;
+  First-Order Plus Dead Time (FOPDT) process model.
+  This class represents a first-order plus dead time (FOPDT) process model, which is commonly used in process control to describe the dynamic behavior of a system.
+  Attributes:
+  params : numpy.ndarray
+    An array containing the default parameters of the system (K, tau, theta).
+  bounds : list
+    A list of tuples specifying the bounds for the parameters (K, tau, theta).
+  tmin : float
+    The minimum time value in the time vector `t`.
+  Methods:
+  model(y, t, uf, K, tau, theta)
+  simulate(params=None, t=None, u=None)
+  &#34;&#34;&#34;
   def __init__(self, t, y, u, params=np.ones((3,))):
     super(FOPDT, self).__init__(t, y, u)
     self.params = params
     self.bounds = [(-np.inf, np.inf), (0.1, np.inf), (0., np.inf)]
-    
+    self.tmin = min(t)
+
   def model(self, y, t, uf, K, tau, theta):
-    try:    
-      if t - theta &lt;= 0:
+    &#34;&#34;&#34;
+    Computes the derivative of the system state `y` at time `t` for a given input function `uf`.
+
+    Parameters:
+    y (float): The current state of the system.
+    t (float): The current time.
+    uf (function): A function representing the input to the system, which takes time `t` as an argument.
+    K (float): The system gain.
+    tau (float): The system time constant.
+    theta (float): The time delay of the system.
+
+    Returns:
+    float: The derivative of the system state `y` at time `t`.
+    &#34;&#34;&#34;
+    try:
+      if t - theta &lt;= self.tmin:
         um = 0
       else:
         um = uf(t - theta)
     except:
       um = 0
-    dydt = (-(y) + K*(um))/tau
+    dydt = (-(y) + K * (um)) / tau
     return dydt
 
   def simulate(self, params=None, t=None, u=None):
+    &#34;&#34;&#34;
+    Simulates the dynamic system using the provided parameters, time vector, and input signal.
+    Parameters:
+    -----------
+    params : tuple, optional
+      A tuple containing the system parameters (K, tau, theta). If not provided, the default parameters of the object are used.
+    t : array-like, optional
+      The time vector for the simulation. If not provided, the default time vector of the object is used.
+    u : array-like, optional
+      The input signal for the simulation. If not provided, the default input signal of the object is used.
+    Returns:
+    --------
+    ym : numpy.ndarray
+      The simulated output of the dynamic system over the given time vector.
+    &#34;&#34;&#34;
     if params is None:
-      params=self.params
-    Km = params[0]
-    taum = params[1]
-    thetam = params[2]
+      params = self.params
+    K, tau, theta = params
 
     if t is None:
-      t = self.t
-    
+      t = self.Data.ts
+
     if u is None:
-      u = self.u
-    
+      u = self.Data.u
+
     uf = interp1d(t, u)
     ym = np.zeros(len(t))
 
-    for i in range(0, len(t)-1):
-      ts=[t[i], t[i+1]]
-      y1 = odeint(self.model, ym[i], ts, args=(uf, Km, taum, thetam))[-1].item()
-      ym[i+1] = y1
+    for i in range(len(t) - 1):
+      ts = [t[i], t[i + 1]]
+      y1 = odeint(self.model, ym[i], ts, args=(uf, K, tau, theta))[-1].item()
+      ym[i + 1] = y1
 
     return ym
 
 
 class SOPDT(ProcessModel):
-    def __init__(self, t, y, u, params=np.ones((4,))):
-        super(SOPDT, self).__init__(t, y, u)
-        self.params = params
-        self.bounds = [(-np.inf, np.inf), (0.01, np.inf), (0.01, np.inf), (0, np.inf)]
+  def __init__(self, t, y, u, params=np.ones((4,))):
+    super(SOPDT, self).__init__(t, y, u)
+    self.params = params
+    self.bounds = [(-np.inf, np.inf), (0.01, np.inf), (0.01, np.inf), (0, np.inf)]
 
-    def model(self, x, t, uf, Kp, taus, zeta, thetap):
+  def model(self, x, t, uf, Kp, taus, zeta, thetap):
+    
     # Kp = process gain
     # taus = second order time constant
     # zeta = damping factor
     # thetap = model time delay
     # equation: ts^2 dy2/dt2 + 2 zeta taus dydt + y = Kp * u(t-thetap)
 
-        u0 = 0
-        try:
-            if (t-thetap) &lt;= 0:
-                um = 0
-            else:
-                um = uf(t-thetap)
-        except:
-            # catch any error
-            um = 0
-        # two states (y and y&#39;)
-        y = x[0]
-        dydt = x[1]
-        dy2dt2 = (-2.0*zeta*taus*dydt - y + Kp*(um))/taus**2
-        return [dydt,dy2dt2]
+    u0 = 0
+    try:
+      if (t - thetap) &lt;= 0:
+        um = 0
+      else:
+        um = uf(t - thetap)
+    except:
+      # catch any error
+      um = 0
+    # two states (y and y&#39;)
+    y = x[0]
+    dydt = x[1]
+    dy2dt2 = (-2.0 * zeta * taus * dydt - y + Kp * (um)) / taus ** 2
+    return [dydt, dy2dt2]
 
-    # simulate model with x=[Km, taum, zetam, thetam]
-    def simulate(self, params=None):
-        if params is None:
-            params = self.params
+  # simulate model with x=[Km, taum, zetam, thetam]
+  def simulate(self, params=None):
+    &#34;&#34;&#34;
+    Simulate the system using the given parameters.
 
-        # input arguments
-        Kp = params[0]
-        taus = params[1]
-        zeta = params[2]
-        thetap = params[3]
-        
-        uf = self.uf
-        t = self.t
-        # storage for model values
-        xm = np.zeros((len(t),2))  # model
-        # initial condition
-        xm[0] = 0
-        # loop through time steps    
-        for i in range(0, len(t)-1):
-            ts = [t[i],t[i+1]]
-            inputs = (uf, Kp, taus, zeta, thetap)
-            # integrate SOPDT model
-            x = odeint(self.model, xm[i], ts, args=inputs)
-            xm[i+1] = x[-1]
-        y = xm[:,0]
-        return y
+    Parameters:
+    params (tuple, optional): A tuple containing the parameters (Kp, taus, zeta, thetap) 
+                  for the simulation. If None, self.params will be used.
+    
+    Returns:
+    numpy.ndarray: The simulated output values over time.
+    &#34;&#34;&#34;
+    if params is None:
+      params = self.params
+    Kp, taus, zeta, thetap = params
+
+    uf = self.uf
+    t = self.Data.t
+    # storage for model values
+    xm = np.zeros((len(t), 2))  # model
+    # initial condition
+    xm[0] = 0
+    # loop through time steps
+    for i in range(len(t) - 1):
+      ts = [t[i], t[i + 1]]
+      inputs = (uf, Kp, taus, zeta, thetap)
+      # integrate SOPDT model
+      x = odeint(self.model, xm[i], ts, args=inputs)
+      xm[i + 1] = x[-1]
+    y = xm[:, 0]
+    return y
 
 
 if __name__ == &#39;__main__&#39;:
-  t, y, u  = np.ones((3,100))
-  t = np.cumsum(t)
-  u[:5] = 0
-  u[60:] = 0
-
-  # Simulate data with second order model
-  som = SOPDT(t, y, u)
-  ys = som.simulate(np.array([2., 5., 0.3, 5.]))
-  som.y = ys
-
-  # Fit Second Order Model to simulated data
-  result = som.fit_model(plot_result=False)
-  print(result[&#34;soln&#34;])
+  import pandas as pd
+  # Load data
+  data = pd.read_csv(&#39;data/NE-MAP.csv&#39;)
+  t, y, u = data[&#39;ts&#39;].values, data[&#39;ys&#39;].values, data[&#39;us&#39;].values
 
   # Test First Order Model
-  fom = FOPDT(t, ys, u)
+  fom = FOPDT(t, y, u)
+  # ys = fom.simulate(np.array([2., 5., 0.3]))
+  # noise = np.random.normal(0, 0.5, len(ys))
+  # yn = ys + noise
+  # fom = FOPDT(t, yn, u)
   result = fom.fit_model(plot_result=True)
-  resid = fom.y - result[&#34;y_pred&#34;]
-  fom.diagnostics(resid)
-  plt.show()</code></pre>
+  print(result.p_val)</code></pre>
 </details>
 </section>
 <section>
@@ -315,7 +645,7 @@ if __name__ == &#39;__main__&#39;:
 <span>(</span><span>ts, y, u)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Data(ts, y, u)</p></div>
+<div class="desc"><p>A data container for time series data. Contains time (ts), output (y), and input (u) data.</p></div>
 <h3>Ancestors</h3>
 <ul class="hlist">
 <li>builtins.tuple</li>
@@ -341,48 +671,107 @@ if __name__ == &#39;__main__&#39;:
 <span>(</span><span>t, y, u, params=array([1., 1., 1.]))</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Base model class that handles the fitting and plotting for various process models</p></div>
+<div class="desc"><p>"
+First-Order Plus Dead Time (FOPDT) process model.
+This class represents a first-order plus dead time (FOPDT) process model, which is commonly used in process control to describe the dynamic behavior of a system.
+Attributes:
+params : numpy.ndarray
+An array containing the default parameters of the system (K, tau, theta).
+bounds : list
+A list of tuples specifying the bounds for the parameters (K, tau, theta).
+tmin : float
+The minimum time value in the time vector <code>t</code>.
+Methods:
+model(y, t, uf, K, tau, theta)
+simulate(params=None, t=None, u=None)</p>
+<p>Initialize the process model with time, output, and input data.</p>
+<p>Parameters:
+t (array-like): Array of time points.
+y (array-like): Array of output data corresponding to the time points.
+u (array-like): Array of input data corresponding to the time points.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">class FOPDT(ProcessModel):
+  &#34;&#34;&#34;&#34;
+  First-Order Plus Dead Time (FOPDT) process model.
+  This class represents a first-order plus dead time (FOPDT) process model, which is commonly used in process control to describe the dynamic behavior of a system.
+  Attributes:
+  params : numpy.ndarray
+    An array containing the default parameters of the system (K, tau, theta).
+  bounds : list
+    A list of tuples specifying the bounds for the parameters (K, tau, theta).
+  tmin : float
+    The minimum time value in the time vector `t`.
+  Methods:
+  model(y, t, uf, K, tau, theta)
+  simulate(params=None, t=None, u=None)
+  &#34;&#34;&#34;
   def __init__(self, t, y, u, params=np.ones((3,))):
     super(FOPDT, self).__init__(t, y, u)
     self.params = params
     self.bounds = [(-np.inf, np.inf), (0.1, np.inf), (0., np.inf)]
-    
+    self.tmin = min(t)
+
   def model(self, y, t, uf, K, tau, theta):
-    try:    
-      if t - theta &lt;= 0:
+    &#34;&#34;&#34;
+    Computes the derivative of the system state `y` at time `t` for a given input function `uf`.
+
+    Parameters:
+    y (float): The current state of the system.
+    t (float): The current time.
+    uf (function): A function representing the input to the system, which takes time `t` as an argument.
+    K (float): The system gain.
+    tau (float): The system time constant.
+    theta (float): The time delay of the system.
+
+    Returns:
+    float: The derivative of the system state `y` at time `t`.
+    &#34;&#34;&#34;
+    try:
+      if t - theta &lt;= self.tmin:
         um = 0
       else:
         um = uf(t - theta)
     except:
       um = 0
-    dydt = (-(y) + K*(um))/tau
+    dydt = (-(y) + K * (um)) / tau
     return dydt
 
   def simulate(self, params=None, t=None, u=None):
+    &#34;&#34;&#34;
+    Simulates the dynamic system using the provided parameters, time vector, and input signal.
+    Parameters:
+    -----------
+    params : tuple, optional
+      A tuple containing the system parameters (K, tau, theta). If not provided, the default parameters of the object are used.
+    t : array-like, optional
+      The time vector for the simulation. If not provided, the default time vector of the object is used.
+    u : array-like, optional
+      The input signal for the simulation. If not provided, the default input signal of the object is used.
+    Returns:
+    --------
+    ym : numpy.ndarray
+      The simulated output of the dynamic system over the given time vector.
+    &#34;&#34;&#34;
     if params is None:
-      params=self.params
-    Km = params[0]
-    taum = params[1]
-    thetam = params[2]
+      params = self.params
+    K, tau, theta = params
 
     if t is None:
-      t = self.t
-    
+      t = self.Data.ts
+
     if u is None:
-      u = self.u
-    
+      u = self.Data.u
+
     uf = interp1d(t, u)
     ym = np.zeros(len(t))
 
-    for i in range(0, len(t)-1):
-      ts=[t[i], t[i+1]]
-      y1 = odeint(self.model, ym[i], ts, args=(uf, Km, taum, thetam))[-1].item()
-      ym[i+1] = y1
+    for i in range(len(t) - 1):
+      ts = [t[i], t[i + 1]]
+      y1 = odeint(self.model, ym[i], ts, args=(uf, K, tau, theta))[-1].item()
+      ym[i + 1] = y1
 
     return ym</code></pre>
 </details>
@@ -396,20 +785,43 @@ if __name__ == &#39;__main__&#39;:
 <span>def <span class="ident">model</span></span>(<span>self, y, t, uf, K, tau, theta)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Computes the derivative of the system state <code>y</code> at time <code>t</code> for a given input function <code>uf</code>.</p>
+<p>Parameters:
+y (float): The current state of the system.
+t (float): The current time.
+uf (function): A function representing the input to the system, which takes time <code>t</code> as an argument.
+K (float): The system gain.
+tau (float): The system time constant.
+theta (float): The time delay of the system.</p>
+<p>Returns:
+float: The derivative of the system state <code>y</code> at time <code>t</code>.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def model(self, y, t, uf, K, tau, theta):
-  try:    
-    if t - theta &lt;= 0:
+  &#34;&#34;&#34;
+  Computes the derivative of the system state `y` at time `t` for a given input function `uf`.
+
+  Parameters:
+  y (float): The current state of the system.
+  t (float): The current time.
+  uf (function): A function representing the input to the system, which takes time `t` as an argument.
+  K (float): The system gain.
+  tau (float): The system time constant.
+  theta (float): The time delay of the system.
+
+  Returns:
+  float: The derivative of the system state `y` at time `t`.
+  &#34;&#34;&#34;
+  try:
+    if t - theta &lt;= self.tmin:
       um = 0
     else:
       um = uf(t - theta)
   except:
     um = 0
-  dydt = (-(y) + K*(um))/tau
+  dydt = (-(y) + K * (um)) / tau
   return dydt</code></pre>
 </details>
 </dd>
@@ -417,31 +829,56 @@ if __name__ == &#39;__main__&#39;:
 <span>def <span class="ident">simulate</span></span>(<span>self, params=None, t=None, u=None)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Simulates the dynamic system using the provided parameters, time vector, and input signal.
+Parameters:</p>
+<hr>
+<p>params : tuple, optional
+A tuple containing the system parameters (K, tau, theta). If not provided, the default parameters of the object are used.
+t : array-like, optional
+The time vector for the simulation. If not provided, the default time vector of the object is used.
+u : array-like, optional
+The input signal for the simulation. If not provided, the default input signal of the object is used.
+Returns:</p>
+<hr>
+<p>ym : numpy.ndarray
+The simulated output of the dynamic system over the given time vector.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def simulate(self, params=None, t=None, u=None):
+  &#34;&#34;&#34;
+  Simulates the dynamic system using the provided parameters, time vector, and input signal.
+  Parameters:
+  -----------
+  params : tuple, optional
+    A tuple containing the system parameters (K, tau, theta). If not provided, the default parameters of the object are used.
+  t : array-like, optional
+    The time vector for the simulation. If not provided, the default time vector of the object is used.
+  u : array-like, optional
+    The input signal for the simulation. If not provided, the default input signal of the object is used.
+  Returns:
+  --------
+  ym : numpy.ndarray
+    The simulated output of the dynamic system over the given time vector.
+  &#34;&#34;&#34;
   if params is None:
-    params=self.params
-  Km = params[0]
-  taum = params[1]
-  thetam = params[2]
+    params = self.params
+  K, tau, theta = params
 
   if t is None:
-    t = self.t
-  
+    t = self.Data.ts
+
   if u is None:
-    u = self.u
-  
+    u = self.Data.u
+
   uf = interp1d(t, u)
   ym = np.zeros(len(t))
 
-  for i in range(0, len(t)-1):
-    ts=[t[i], t[i+1]]
-    y1 = odeint(self.model, ym[i], ts, args=(uf, Km, taum, thetam))[-1].item()
-    ym[i+1] = y1
+  for i in range(len(t) - 1):
+    ts = [t[i], t[i + 1]]
+    y1 = odeint(self.model, ym[i], ts, args=(uf, K, tau, theta))[-1].item()
+    ym[i + 1] = y1
 
   return ym</code></pre>
 </details>
@@ -451,6 +888,15 @@ if __name__ == &#39;__main__&#39;:
 <ul class="hlist">
 <li><code><b><a title="pydynamics.process_models.ProcessModel" href="#pydynamics.process_models.ProcessModel">ProcessModel</a></b></code>:
 <ul class="hlist">
+<li><code><a title="pydynamics.process_models.ProcessModel.diagnostics" href="#pydynamics.process_models.ProcessModel.diagnostics">diagnostics</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.estimate_confidence_intervals" href="#pydynamics.process_models.ProcessModel.estimate_confidence_intervals">estimate_confidence_intervals</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.estimate_covariance" href="#pydynamics.process_models.ProcessModel.estimate_covariance">estimate_covariance</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.fit_model" href="#pydynamics.process_models.ProcessModel.fit_model">fit_model</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.fit_params" href="#pydynamics.process_models.ProcessModel.fit_params">fit_params</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.objective" href="#pydynamics.process_models.ProcessModel.objective">objective</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.plot_confidence_intervals" href="#pydynamics.process_models.ProcessModel.plot_confidence_intervals">plot_confidence_intervals</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.plot_results" href="#pydynamics.process_models.ProcessModel.plot_results">plot_results</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.pvalue" href="#pydynamics.process_models.ProcessModel.pvalue">pvalue</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.step" href="#pydynamics.process_models.ProcessModel.step">step</a></code></li>
 </ul>
 </li>
@@ -461,7 +907,7 @@ if __name__ == &#39;__main__&#39;:
 <span>(</span><span>K, tau, theta, zeta)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Params(K, tau, theta, zeta)</p></div>
+<div class="desc"><p>A parameter container for process models. Contains the parameters K, tau, theta, and zeta.</p></div>
 <h3>Ancestors</h3>
 <ul class="hlist">
 <li>builtins.tuple</li>
@@ -491,60 +937,319 @@ if __name__ == &#39;__main__&#39;:
 <span>(</span><span>t, y, u)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Base model class that handles the fitting and plotting for various process models</p></div>
+<div class="desc"><p>Base model class that handles the fitting and plotting for various process models.</p>
+<h2 id="attributes">Attributes</h2>
+<dl>
+<dt><strong><code>Data</code></strong> :&ensp;<code><a title="pydynamics.process_models.Data" href="#pydynamics.process_models.Data">Data</a></code></dt>
+<dd>An instance of the Data class containing time (t), output (y), and input (u) data.</dd>
+<dt><strong><code>uf</code></strong> :&ensp;<code>interp1d</code></dt>
+<dd>Interpolated function of the input data.</dd>
+</dl>
+<h2 id="methods">Methods</h2>
+<p><strong>init</strong>(t, y, u):
+Initializes the ProcessModel with time, output, and input data.
+objective(params):
+Computes the objective function (sum of squared errors) for given parameters.
+fit_params(init_guess=None):
+Fits the model parameters using optimization and returns the optimal parameters.
+fit_model(plot_result=False, plot_diagnostics=False):
+Fits the model, computes residuals, mean squared error, and R-squared value. Optionally plots the results and diagnostics.
+jacobian(params) -&gt; np.ndarray:
+Computes the Jacobian matrix for the given parameters.
+estimate_confidence_intervals(params):
+Estimates the 95% confidence intervals for the model parameters.
+plot_confidence_intervals():
+Plots the model fit along with the 95% confidence intervals.
+step(params=None, step=1):
+Generates a step response plot for a First Order Plus Dead Time (FOPDT) model with the given parameters.
+plot_results():
+Plots the model fit results, including prediction intervals and observed data.
+diagnostics(plot=True):
+Computes and optionally plots diagnostic metrics such as autocorrelation and cross-correlation of residuals.</p>
+<p>Initialize the process model with time, output, and input data.</p>
+<p>Parameters:
+t (array-like): Array of time points.
+y (array-like): Array of output data corresponding to the time points.
+u (array-like): Array of input data corresponding to the time points.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">class ProcessModel:
-  &#34;Base model class that handles the fitting and plotting for various process models&#34;
+  &#34;&#34;&#34;
+  Base model class that handles the fitting and plotting for various process models.
+  Attributes:
+    Data (Data): An instance of the Data class containing time (t), output (y), and input (u) data.
+    uf (interp1d): Interpolated function of the input data.
+  Methods:
+    __init__(t, y, u):
+      Initializes the ProcessModel with time, output, and input data.
+    objective(params):
+      Computes the objective function (sum of squared errors) for given parameters.
+    fit_params(init_guess=None):
+      Fits the model parameters using optimization and returns the optimal parameters.
+    fit_model(plot_result=False, plot_diagnostics=False):
+      Fits the model, computes residuals, mean squared error, and R-squared value. Optionally plots the results and diagnostics.
+    jacobian(params) -&gt; np.ndarray:
+      Computes the Jacobian matrix for the given parameters.
+    estimate_confidence_intervals(params):
+      Estimates the 95% confidence intervals for the model parameters.
+    plot_confidence_intervals():
+      Plots the model fit along with the 95% confidence intervals.
+    step(params=None, step=1):
+      Generates a step response plot for a First Order Plus Dead Time (FOPDT) model with the given parameters.
+    plot_results():
+      Plots the model fit results, including prediction intervals and observed data.
+    diagnostics(plot=True):
+      Computes and optionally plots diagnostic metrics such as autocorrelation and cross-correlation of residuals.
+  &#34;&#34;&#34;
 
   def __init__(self, t, y, u):
-    self.t = t
-    self.y = y
-    self.u = u
+    &#34;&#34;&#34;
+    Initialize the process model with time, output, and input data.
+
+    Parameters:
+    t (array-like): Array of time points.
+    y (array-like): Array of output data corresponding to the time points.
+    u (array-like): Array of input data corresponding to the time points.
+    &#34;&#34;&#34;
+    self.Data = Data(t, y, u)
     self.uf = interp1d(t, u)
 
   def objective(self, params):
+    &#34;&#34;&#34;
+    Calculate the objective function value for given parameters.
+
+    This function simulates the model with the provided parameters and computes
+    the sum of squared differences between the simulated output and the actual data.
+
+    Parameters:
+    params (array-like): The parameters to be used for simulation.
+
+    Returns:
+    float: The sum of squared differences between the simulated output and the actual data.
+    &#34;&#34;&#34;
     ym = self.simulate(params)
-    return np.sum((ym -self.y)**2)
+    return np.sum((ym - self.Data.y) ** 2)
 
   def fit_params(self, init_guess=None):
+    &#34;&#34;&#34;
+    Fit the parameters of the model using optimization.
+
+    Parameters:
+    -----------
+    init_guess : array-like, optional
+      Initial guess for the parameters. If None, an array of ones with the same shape as `self.params` is used.
+
+    Returns:
+    --------
+    p_opt : array-like
+      Optimized parameters.
+    &#34;&#34;&#34;
     if init_guess is None:
       init_guess = np.ones(self.params.shape)
     solution = minimize(self.objective, init_guess, bounds=self.bounds)
     p_opt = solution.x
     return p_opt
-  
-  def fit_model(self, plot_result=False):
-    result = dict()
-    result[&#34;soln&#34;] = self.fit_params()
-    result[&#34;y_pred&#34;] = self.simulate(result[&#34;soln&#34;])
-    result[&#34;mse&#34;] = self.objective(result[&#34;soln&#34;])/len(self.y)
-    result[&#34;R2&#34;] = 1 - (np.var(self.y - result[&#34;y_pred&#34;])/np.var(self.y))
-    self.result = result
-  
+
+  def fit_model(self, plot_result=False, plot_diagnostics=False):
+    &#34;&#34;&#34;
+    Fits the model to the data, computes residuals, RMSE, R-squared value, and parameter statistics.
+    Parameters:
+    -----------
+    plot_result : bool, optional
+      If True, plots the model results. Default is False.
+    plot_diagnostics : bool, optional
+      If True, plots diagnostic information. Default is False.
+    Returns:
+    --------
+    Result
+      An object containing the fitted parameters, their covariance, p-values, R-squared value, 
+      model predictions, residuals, and RMSE.
+    Notes:
+    ------
+    This method performs the following steps:
+    1. Fits the model parameters using `fit_params`.
+    2. Simulates the model predictions using `simulate`.
+    3. Computes the residuals, RMSE, and R-squared value.
+    4. Estimates the covariance of the parameters using `estimate_covariance`.
+    5. Computes the p-values of the parameters using `pvalue`.
+    6. Stores the results in a `Result` object.
+    7. Optionally plots the results and diagnostics if `plot_result` or `plot_diagnostics` are True.
+    &#34;&#34;&#34;
+    p_opt = self.fit_params() # fit the model
+    y_hat = self.simulate(p_opt, self.Data.ts, self.Data.u) # generate model predictions
+    resid = self.Data.y - y_hat # compute residuals
+    rmse  = np.sqrt(np.sum(resid**2) / len(self.Data.y)) # compute RMSE
+    r_square = 1 - (np.var(self.Data.y - y_hat) / np.var(self.Data.y)) # compute R-squared value
+    self.result = Result(p_opt=p_opt, p_cov=None, p_val=None, r_square=r_square, y_hat=y_hat, resid=resid, RMSE=rmse)
+    p_cov = self.estimate_covariance(p_opt)
+    p_val = self.pvalue(p_opt, p_cov)
+    self.result = Result(p_opt=p_opt, p_cov=p_cov, p_val=p_val, r_square=r_square, y_hat=y_hat, resid=resid, RMSE=rmse)
+
     if plot_result:
       self.plot_results()
+    
+    if plot_diagnostics:
+      self.diagnostics()
+    return self.result
 
-    self.result = result
-    return result
+  def jacobian(self, params) -&gt; np.ndarray:
+    K, tau, theta = params
+    uf = interp1d(self.Data.ts, self.Data.u, fill_value=&#34;extrapolate&#34;)
+    J = np.zeros((len(self.Data.ts), 3))
+    dt = self.Data.ts[1] - self.Data.ts[0]
+
+    for i, t in enumerate(self.Data.ts):
+      if t - theta &lt;= 0:
+        u_delayed = 0
+        u_derivative = 0
+      else:
+        u_delayed = uf(t - theta)
+        u_derivative = (uf(t - theta + dt) - uf(t - theta)) / dt
+
+      J[i, 0] = u_delayed / tau
+      J[i, 1] = -(K * u_delayed - self.Data.y[i]) / tau ** 2
+      J[i, 2] = -(K / tau) * u_derivative
+
+    return J
+  
+
+  def estimate_covariance(self, params):
+    &#34;&#34;&#34;
+    Estimate the covariance matrix of the parameters.
+    Parameters:
+    -----------
+    params : array-like
+      The parameters for which the covariance matrix is to be estimated.
+    Returns:
+    --------
+    C : ndarray or None
+      The estimated covariance matrix of the parameters. If the Jacobian is singular,
+      returns None and prints an error message.
+    Notes:
+    ------
+    The covariance matrix is estimated using the residuals from the model and the Jacobian
+    of the parameters. If the Jacobian is singular, the function will not be able to compute
+    the covariance matrix and will return None.
+    &#34;&#34;&#34;
+
+    res = self.result.resid
+    sigma2 = np.sum(res ** 2) / (len(self.Data.ts) - len(params))
+    J = self.jacobian(params)
+
+    # Covariance matrix
+    try:
+      C = sigma2 * np.linalg.inv(J.T @ J)
+    except np.linalg.LinAlgError:
+      print(&#34;Jacobian is singular. Cannot compute confidence intervals.&#34;)
+      return None
+
+    # Standard errors
+    return C
+  
+  def estimate_confidence_intervals(self, p_cov):
+    &#34;&#34;&#34;
+    Compute 95% confidence intervals of MLE parameters from the covariance matrix.
+
+    Args:
+      p_cov (np.ndarray): Covariance matrix of the parameters.
+
+    Returns:
+      confidence_intervals (list): List of tuples containing the lower and upper bounds of the confidence intervals for each parameter.
+
+    &#34;&#34;&#34;
+    
+    se = np.sqrt(np.diag(p_cov))
+    p_opt = self.result.p_opt
+
+    # 95% Confidence intervals
+    confidence_intervals = []
+
+    for i in range(len(p_opt)):
+      lower = p_opt[i] - 1.96 * se[i]
+      upper = p_opt[i] + 1.96 * se[i]
+      confidence_intervals.append((lower, upper))
+    return confidence_intervals
+
+  def pvalue(self, params, p_cov):
+    &#34;&#34;&#34;
+    Compute the p-values for the model parameters.
+
+    Args:
+      params (np.ndarray): Model parameters.
+      p_cov (np.ndarray): Covariance matrix of the parameters.
+
+    Returns:
+      p_values (np.ndarray): Array of p-values for each parameter.
+
+    &#34;&#34;&#34;
+    se = np.sqrt(np.diag(p_cov))
+    t_values = params / se
+    p_values = 2 * (1 - stats.t.cdf(np.abs(t_values), len(self.Data.ts) - len(params)))
+    return p_values
+
+
+  def plot_confidence_intervals(self):
+    &#34;&#34;&#34;
+    Plots the observed data, the best fit model, and the 95% confidence intervals for the model predictions.
+    This method uses the time series data, the observed response, and the predicted response from the model.
+    It calculates the confidence intervals based on the covariance of the parameter estimates and simulates
+    the response using the lower and upper bounds of the confidence intervals. The plot includes the observed
+    data points, the best fit model line, and a shaded area representing the 95% confidence interval.
+    &#34;&#34;&#34;
+    t = self.Data.ts
+    u = self.Data.u
+    y_true = self.Data.y  # Observed data
+    y_pred = self.result.y_hat
+    params = self.result.p_opt
+    ci = self.ci_from_cov(self.result.p_cov)
+
+    # Simulate using confidence interval bounds
+    params_lower = [ci[i][0] for i in range(len(params))]
+    params_upper = [ci[i][1] for i in range(len(params))]
+    y_lower = self.simulate(params_lower, self.Data.ts, self.Data.u)
+    y_upper = self.simulate(params_upper, self.Data.ts, self.Data.u)
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(t, y_true, &#39;ko&#39;, markersize=3, label=&#34;Observed Data&#34;)
+    plt.plot(t, y_pred, &#39;r-&#39;, label=&#34;Best Fit Model&#34;)
+    plt.fill_between(t, y_lower, y_upper, color=&#39;red&#39;, alpha=0.3, label=&#34;95% Confidence Interval&#34;)
+
+    plt.xlabel(&#34;Time (s)&#34;)
+    plt.ylabel(&#34;Response y(t)&#34;)
+    plt.title(&#34;Model Fit with Confidence Interval&#34;)
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
   def step(self, params=None, step=1):
     &#34;&#34;&#34;
-    Generate a step response plot for a FOPDT model with the given params
+    Generate a step response plot for a First Order Plus Dead Time (FOPDT) model with the given parameters.
+    Parameters:
+    params (list or None): Parameters for the FOPDT model. If None, uses self.result.p_opt.
+    step (int): The step input value. Default is 1.
+    Returns:
+    None: This function generates and displays a plot.
+    The function performs the following steps:
+    1. If params is None, it assigns self.result.p_opt to params.
+    2. Extracts the time constant (taum) from params.
+    3. Creates a time array (ts) ranging from -taum to 5 * taum.
+    4. Initializes an input array (us) with zeros and sets the step input after taum.
+    5. Simulates the FOPDT model response using the given parameters, time array, and input array.
+    6. Plots the output response and input signal on two subplots.
     &#34;&#34;&#34;
     if params is None:
-      params = self.result[&#34;soln&#34;]
+      params = self.result.p_opt
     taum = params[1]
-    ts = np.arange(-taum, 5*taum)
+    ts = np.arange(-taum, 5 * taum)
 
     us = np.zeros((len(ts)))
-    us[np.int8(taum)+1:] = step
+    us[np.int8(taum) + 1:] = step
 
     y = self.simulate(params, ts, us)
     plt.figure()
-    plt.subplots(2,1, sharex=True)
+    plt.subplots(2, 1, sharex=True)
 
     plt.subplot(211)
     plt.plot(ts, y)
@@ -556,47 +1261,107 @@ if __name__ == &#39;__main__&#39;:
     plt.grid()
 
   def plot_results(self):
-    plt.subplots(2,1, sharex=True)
-    plt.suptitle(&#34;model fit&#34;)
-    
-    plt.subplot(211)
-    plt.plot(self.t, self.y, linewidth=2)
-    plt.plot(self.t, self.result[&#34;y_pred&#34;], &#39;k--&#39;)
-    plt.grid()
-    plt.title(&#34;Output&#34;)
-    plt.ylabel(&#34;Change in output&#34;)
-    plt.legend([&#34;data&#34;, &#34;model&#34;])
+    &#34;&#34;&#34;
+    Plots the results of the model fit, including the observed data, model predictions, 
+    and prediction intervals.
+    This method generates a plot with two y-axes:
+    - The left y-axis shows the change in output with observed data points, model predictions, 
+      and prediction intervals.
+    - The right y-axis shows the change in input over time.
+    The plot includes:
+    - A title displaying the R-squared value and RMSE of the model fit.
+    - Observed data points as blue dots.
+    - Model predictions as a black line.
+    - 95% prediction intervals as a shaded red area.
+    - Standard error of the mean (SEM) intervals as a shaded red area with higher opacity.
+    - Change in input as a gray line (right axis).
+    The method also adjusts the layout to ensure the right y-label is not clipped.
+    &#34;&#34;&#34;
+    # gather variables
+    ts, ys, us = self.Data
+    res = self.result
 
-    plt.subplot(212)
-    plt.plot(self.t, self.u)
-    plt.grid()
-    plt.title(&#34;Input&#34;)
-    plt.xlabel(&#34;time&#34;)
-    plt.ylabel(&#34;change in input&#34;)
+    # calculate prediction intervals
+    sem = np.sqrt(np.sum((res.resid)**2)/(len(ys)-3))
+    pi95 = 1.96*sem
 
-  def diagnostics(self, resid, plot=True):
+    fig, ax1 = plt.subplots(figsize=(8, 6))
+    plt.title(f&#34;Model fit: Rsq = {res.r_square:0.3f}, RMSE = {res.RMSE:0.3f}&#34;)
 
-    t = self.t
-    dt = t[1]-t[0]
-   
-    res_norm = resid/np.linalg.norm(resid)
-    u_norm = self.u/np.linalg.norm(self.u)
+    color = &#39;tab:blue&#39;
+    ax1.set_xlabel(&#39;time&#39;)
+    ax1.set_ylabel(&#39;Change in output&#39;, color=color)
+    ax1.fill_between(ts, res.y_hat-pi95, res.y_hat+pi95, color=&#39;r&#39;, alpha=0.15)
+    ax1.fill_between(ts, res.y_hat-sem, res.y_hat+sem, color=&#39;r&#39;, alpha=0.2)
+    ax1.plot(ts, ys, &#39;b.&#39;, label=&#39;observations&#39;, alpha=0.6)
+    ax1.plot(ts, res.y_hat, &#39;k&#39;, linewidth=1.5, label=&#39;model&#39;)
+    ax1.tick_params(axis=&#39;y&#39;, labelcolor=color)
+    ax1.legend(loc=&#39;upper left&#39;)
+    ax1.grid()
+
+    ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+    color = &#39;tab:gray&#39;
+    ax2.set_ylabel(&#39;Change in input&#39;, color=color)  # we already handled the x-label with ax1
+    ax2.plot(ts, us, color=color)
+    ax2.tick_params(axis=&#39;y&#39;, labelcolor=color)
+    ax2.set_ylim([min(us)-(0.1*max(us)), 10*max(us)])
+
+    fig.tight_layout()  # otherwise the right y-label is slightly clipped
+    plt.show()
+
+  def diagnostics(self, plot=True):
+    &#34;&#34;&#34;
+    Perform diagnostics on the model&#39;s residuals and input data.
+    This method calculates and prints the mean squared values of the 
+    autocorrelation and cross-correlation functions of the residuals 
+    and their differences. Optionally, it plots these diagnostics.
+    Parameters:
+    -----------
+    plot : bool, optional
+      If True, plots the diagnostics. Default is True.
+    Attributes:
+    -----------
+    cc_means : dict
+      A dictionary containing the mean squared values of the 
+      autocorrelation and cross-correlation functions:
+      - &#34;acf&#34;: Autocorrelation of residuals
+      - &#34;ccf&#34;: Cross-correlation of residuals with input
+      - &#34;acfd&#34;: Autocorrelation of residual differences
+      - &#34;ccfd&#34;: Cross-correlation of residual differences with input
+    Prints:
+    -------
+    Mean squared values of the autocorrelation and cross-correlation 
+    functions.
+    Plots:
+    ------
+    If plot is True, generates the following plots:
+    - Residuals
+    - Autocorrelation of residuals
+    - Cross-correlation of residuals with input
+    - Residual differences
+    - Autocorrelation of residual differences
+    - Cross-correlation of residual differences with input
+    &#34;&#34;&#34;
+    t = self.Data.ts
+    dt = t[1] - t[0]
+    resid = self.result.resid
+    res_norm = resid / np.linalg.norm(resid)
+    u_norm = self.Data.u / np.linalg.norm(self.Data.u)
 
     resd = np.diff(resid)
-    resd_norm = np.diff(resd)/np.linalg.norm(np.diff(resd))
+    resd_norm = np.diff(resd) / np.linalg.norm(np.diff(resd))
 
     acf = np.correlate(res_norm, res_norm, &#39;same&#39;)
-    acf[len(acf)//2] = 0
+    acf[len(acf) // 2] = 0
     ccf = np.correlate(u_norm, res_norm, &#39;same&#39;)
 
     acfd = np.correlate(resd_norm, resd_norm, &#39;same&#39;)
-    acfd[len(acfd)//2] = 0
+    acfd[len(acfd) // 2] = 0
     ccfd = np.correlate(u_norm, resd_norm, &#39;same&#39;)
 
-    self.cc_means = dict({&#34;acf&#34;: np.mean(acf**2), &#34;ccf&#34;: np.mean(ccf**2), &#34;acfd&#34;: np.mean(acfd**2), &#34;ccfd&#34;: np.mean(ccfd**2)})
+    self.cc_means = dict({&#34;acf&#34;: np.mean(acf ** 2), &#34;ccf&#34;: np.mean(ccf ** 2), &#34;acfd&#34;: np.mean(acfd ** 2), &#34;ccfd&#34;: np.mean(ccfd ** 2)})
 
-    print(f&#34;{np.mean(acf**2):0.3f}, {np.mean(ccf**2):0.3f}, {np.mean(acfd**2):0.3f}, {np.mean(ccfd**2):0.3f}&#34;)
-
+    print(f&#34;{np.mean(acf ** 2):0.3f}, {np.mean(ccf ** 2):0.3f}, {np.mean(acfd ** 2):0.3f}, {np.mean(ccfd ** 2):0.3f}&#34;)
 
     if plot:
       plt.subplots(3, 2)
@@ -604,36 +1369,35 @@ if __name__ == &#39;__main__&#39;:
       plt.plot(resid)
       plt.title(&#34;Residuals&#34;)
       plt.grid()
-      
+
       plt.subplot(323)
       plt.title(&#34;Autocorrelation of Residuals&#34;)
       plt.plot(acf)
       plt.ylim([-1, 1])
       plt.grid()
-      
+
       plt.subplot(325)
       plt.title(&#34;Cross-correlation: Residuals -&gt; input&#34;)
       plt.plot(ccf)
 
-      plt.ylim([-1,1])
+      plt.ylim([-1, 1])
       plt.grid()
 
       plt.subplot(322)
       plt.plot(resd)
       plt.title(&#34;Residual diff&#34;)
       plt.grid()
-      
+
       plt.subplot(324)
       plt.title(&#34;Autocorrelation of Residual diff&#34;)
       plt.plot(acfd)
       plt.ylim([-1, 1])
       plt.grid()
-    
-      
+
       plt.subplot(326)
       plt.title(&#34;Cross-correlation: Residual diff -&gt; input&#34;)
       plt.plot(ccfd)
-      plt.ylim([-1,1])
+      plt.ylim([-1, 1])
       plt.grid()</code></pre>
 </details>
 <h3>Subclasses</h3>
@@ -644,37 +1408,96 @@ if __name__ == &#39;__main__&#39;:
 <h3>Methods</h3>
 <dl>
 <dt id="pydynamics.process_models.ProcessModel.diagnostics"><code class="name flex">
-<span>def <span class="ident">diagnostics</span></span>(<span>self, resid, plot=True)</span>
+<span>def <span class="ident">diagnostics</span></span>(<span>self, plot=True)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Perform diagnostics on the model's residuals and input data.
+This method calculates and prints the mean squared values of the
+autocorrelation and cross-correlation functions of the residuals
+and their differences. Optionally, it plots these diagnostics.
+Parameters:</p>
+<hr>
+<p>plot : bool, optional
+If True, plots the diagnostics. Default is True.
+Attributes:</p>
+<hr>
+<p>cc_means : dict
+A dictionary containing the mean squared values of the
+autocorrelation and cross-correlation functions:
+- "acf": Autocorrelation of residuals
+- "ccf": Cross-correlation of residuals with input
+- "acfd": Autocorrelation of residual differences
+- "ccfd": Cross-correlation of residual differences with input
+Prints:</p>
+<hr>
+<p>Mean squared values of the autocorrelation and cross-correlation
+functions.
+Plots:</p>
+<hr>
+<p>If plot is True, generates the following plots:
+- Residuals
+- Autocorrelation of residuals
+- Cross-correlation of residuals with input
+- Residual differences
+- Autocorrelation of residual differences
+- Cross-correlation of residual differences with input</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def diagnostics(self, resid, plot=True):
-
-  t = self.t
-  dt = t[1]-t[0]
- 
-  res_norm = resid/np.linalg.norm(resid)
-  u_norm = self.u/np.linalg.norm(self.u)
+<pre><code class="python">def diagnostics(self, plot=True):
+  &#34;&#34;&#34;
+  Perform diagnostics on the model&#39;s residuals and input data.
+  This method calculates and prints the mean squared values of the 
+  autocorrelation and cross-correlation functions of the residuals 
+  and their differences. Optionally, it plots these diagnostics.
+  Parameters:
+  -----------
+  plot : bool, optional
+    If True, plots the diagnostics. Default is True.
+  Attributes:
+  -----------
+  cc_means : dict
+    A dictionary containing the mean squared values of the 
+    autocorrelation and cross-correlation functions:
+    - &#34;acf&#34;: Autocorrelation of residuals
+    - &#34;ccf&#34;: Cross-correlation of residuals with input
+    - &#34;acfd&#34;: Autocorrelation of residual differences
+    - &#34;ccfd&#34;: Cross-correlation of residual differences with input
+  Prints:
+  -------
+  Mean squared values of the autocorrelation and cross-correlation 
+  functions.
+  Plots:
+  ------
+  If plot is True, generates the following plots:
+  - Residuals
+  - Autocorrelation of residuals
+  - Cross-correlation of residuals with input
+  - Residual differences
+  - Autocorrelation of residual differences
+  - Cross-correlation of residual differences with input
+  &#34;&#34;&#34;
+  t = self.Data.ts
+  dt = t[1] - t[0]
+  resid = self.result.resid
+  res_norm = resid / np.linalg.norm(resid)
+  u_norm = self.Data.u / np.linalg.norm(self.Data.u)
 
   resd = np.diff(resid)
-  resd_norm = np.diff(resd)/np.linalg.norm(np.diff(resd))
+  resd_norm = np.diff(resd) / np.linalg.norm(np.diff(resd))
 
   acf = np.correlate(res_norm, res_norm, &#39;same&#39;)
-  acf[len(acf)//2] = 0
+  acf[len(acf) // 2] = 0
   ccf = np.correlate(u_norm, res_norm, &#39;same&#39;)
 
   acfd = np.correlate(resd_norm, resd_norm, &#39;same&#39;)
-  acfd[len(acfd)//2] = 0
+  acfd[len(acfd) // 2] = 0
   ccfd = np.correlate(u_norm, resd_norm, &#39;same&#39;)
 
-  self.cc_means = dict({&#34;acf&#34;: np.mean(acf**2), &#34;ccf&#34;: np.mean(ccf**2), &#34;acfd&#34;: np.mean(acfd**2), &#34;ccfd&#34;: np.mean(ccfd**2)})
+  self.cc_means = dict({&#34;acf&#34;: np.mean(acf ** 2), &#34;ccf&#34;: np.mean(ccf ** 2), &#34;acfd&#34;: np.mean(acfd ** 2), &#34;ccfd&#34;: np.mean(ccfd ** 2)})
 
-  print(f&#34;{np.mean(acf**2):0.3f}, {np.mean(ccf**2):0.3f}, {np.mean(acfd**2):0.3f}, {np.mean(ccfd**2):0.3f}&#34;)
-
+  print(f&#34;{np.mean(acf ** 2):0.3f}, {np.mean(ccf ** 2):0.3f}, {np.mean(acfd ** 2):0.3f}, {np.mean(ccfd ** 2):0.3f}&#34;)
 
   if plot:
     plt.subplots(3, 2)
@@ -682,73 +1505,238 @@ if __name__ == &#39;__main__&#39;:
     plt.plot(resid)
     plt.title(&#34;Residuals&#34;)
     plt.grid()
-    
+
     plt.subplot(323)
     plt.title(&#34;Autocorrelation of Residuals&#34;)
     plt.plot(acf)
     plt.ylim([-1, 1])
     plt.grid()
-    
+
     plt.subplot(325)
     plt.title(&#34;Cross-correlation: Residuals -&gt; input&#34;)
     plt.plot(ccf)
 
-    plt.ylim([-1,1])
+    plt.ylim([-1, 1])
     plt.grid()
 
     plt.subplot(322)
     plt.plot(resd)
     plt.title(&#34;Residual diff&#34;)
     plt.grid()
-    
+
     plt.subplot(324)
     plt.title(&#34;Autocorrelation of Residual diff&#34;)
     plt.plot(acfd)
     plt.ylim([-1, 1])
     plt.grid()
-  
-    
+
     plt.subplot(326)
     plt.title(&#34;Cross-correlation: Residual diff -&gt; input&#34;)
     plt.plot(ccfd)
-    plt.ylim([-1,1])
+    plt.ylim([-1, 1])
     plt.grid()</code></pre>
 </details>
 </dd>
-<dt id="pydynamics.process_models.ProcessModel.fit_model"><code class="name flex">
-<span>def <span class="ident">fit_model</span></span>(<span>self, plot_result=False)</span>
+<dt id="pydynamics.process_models.ProcessModel.estimate_confidence_intervals"><code class="name flex">
+<span>def <span class="ident">estimate_confidence_intervals</span></span>(<span>self, p_cov)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Compute 95% confidence intervals of MLE parameters from the covariance matrix.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>p_cov</code></strong> :&ensp;<code>np.ndarray</code></dt>
+<dd>Covariance matrix of the parameters.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>confidence_intervals (list): List of tuples containing the lower and upper bounds of the confidence intervals for each parameter.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def fit_model(self, plot_result=False):
-  result = dict()
-  result[&#34;soln&#34;] = self.fit_params()
-  result[&#34;y_pred&#34;] = self.simulate(result[&#34;soln&#34;])
-  result[&#34;mse&#34;] = self.objective(result[&#34;soln&#34;])/len(self.y)
-  result[&#34;R2&#34;] = 1 - (np.var(self.y - result[&#34;y_pred&#34;])/np.var(self.y))
-  self.result = result
+<pre><code class="python">def estimate_confidence_intervals(self, p_cov):
+  &#34;&#34;&#34;
+  Compute 95% confidence intervals of MLE parameters from the covariance matrix.
+
+  Args:
+    p_cov (np.ndarray): Covariance matrix of the parameters.
+
+  Returns:
+    confidence_intervals (list): List of tuples containing the lower and upper bounds of the confidence intervals for each parameter.
+
+  &#34;&#34;&#34;
+  
+  se = np.sqrt(np.diag(p_cov))
+  p_opt = self.result.p_opt
+
+  # 95% Confidence intervals
+  confidence_intervals = []
+
+  for i in range(len(p_opt)):
+    lower = p_opt[i] - 1.96 * se[i]
+    upper = p_opt[i] + 1.96 * se[i]
+    confidence_intervals.append((lower, upper))
+  return confidence_intervals</code></pre>
+</details>
+</dd>
+<dt id="pydynamics.process_models.ProcessModel.estimate_covariance"><code class="name flex">
+<span>def <span class="ident">estimate_covariance</span></span>(<span>self, params)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Estimate the covariance matrix of the parameters.
+Parameters:</p>
+<hr>
+<p>params : array-like
+The parameters for which the covariance matrix is to be estimated.
+Returns:</p>
+<hr>
+<p>C : ndarray or None
+The estimated covariance matrix of the parameters. If the Jacobian is singular,
+returns None and prints an error message.
+Notes:</p>
+<hr>
+<p>The covariance matrix is estimated using the residuals from the model and the Jacobian
+of the parameters. If the Jacobian is singular, the function will not be able to compute
+the covariance matrix and will return None.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def estimate_covariance(self, params):
+  &#34;&#34;&#34;
+  Estimate the covariance matrix of the parameters.
+  Parameters:
+  -----------
+  params : array-like
+    The parameters for which the covariance matrix is to be estimated.
+  Returns:
+  --------
+  C : ndarray or None
+    The estimated covariance matrix of the parameters. If the Jacobian is singular,
+    returns None and prints an error message.
+  Notes:
+  ------
+  The covariance matrix is estimated using the residuals from the model and the Jacobian
+  of the parameters. If the Jacobian is singular, the function will not be able to compute
+  the covariance matrix and will return None.
+  &#34;&#34;&#34;
+
+  res = self.result.resid
+  sigma2 = np.sum(res ** 2) / (len(self.Data.ts) - len(params))
+  J = self.jacobian(params)
+
+  # Covariance matrix
+  try:
+    C = sigma2 * np.linalg.inv(J.T @ J)
+  except np.linalg.LinAlgError:
+    print(&#34;Jacobian is singular. Cannot compute confidence intervals.&#34;)
+    return None
+
+  # Standard errors
+  return C</code></pre>
+</details>
+</dd>
+<dt id="pydynamics.process_models.ProcessModel.fit_model"><code class="name flex">
+<span>def <span class="ident">fit_model</span></span>(<span>self, plot_result=False, plot_diagnostics=False)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Fits the model to the data, computes residuals, RMSE, R-squared value, and parameter statistics.
+Parameters:</p>
+<hr>
+<p>plot_result : bool, optional
+If True, plots the model results. Default is False.
+plot_diagnostics : bool, optional
+If True, plots diagnostic information. Default is False.
+Returns:</p>
+<hr>
+<p>Result
+An object containing the fitted parameters, their covariance, p-values, R-squared value,
+model predictions, residuals, and RMSE.
+Notes:</p>
+<hr>
+<p>This method performs the following steps:
+1. Fits the model parameters using <code>fit_params</code>.
+2. Simulates the model predictions using <code>simulate</code>.
+3. Computes the residuals, RMSE, and R-squared value.
+4. Estimates the covariance of the parameters using <code>estimate_covariance</code>.
+5. Computes the p-values of the parameters using <code>pvalue</code>.
+6. Stores the results in a <code><a title="pydynamics.process_models.Result" href="#pydynamics.process_models.Result">Result</a></code> object.
+7. Optionally plots the results and diagnostics if <code>plot_result</code> or <code>plot_diagnostics</code> are True.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def fit_model(self, plot_result=False, plot_diagnostics=False):
+  &#34;&#34;&#34;
+  Fits the model to the data, computes residuals, RMSE, R-squared value, and parameter statistics.
+  Parameters:
+  -----------
+  plot_result : bool, optional
+    If True, plots the model results. Default is False.
+  plot_diagnostics : bool, optional
+    If True, plots diagnostic information. Default is False.
+  Returns:
+  --------
+  Result
+    An object containing the fitted parameters, their covariance, p-values, R-squared value, 
+    model predictions, residuals, and RMSE.
+  Notes:
+  ------
+  This method performs the following steps:
+  1. Fits the model parameters using `fit_params`.
+  2. Simulates the model predictions using `simulate`.
+  3. Computes the residuals, RMSE, and R-squared value.
+  4. Estimates the covariance of the parameters using `estimate_covariance`.
+  5. Computes the p-values of the parameters using `pvalue`.
+  6. Stores the results in a `Result` object.
+  7. Optionally plots the results and diagnostics if `plot_result` or `plot_diagnostics` are True.
+  &#34;&#34;&#34;
+  p_opt = self.fit_params() # fit the model
+  y_hat = self.simulate(p_opt, self.Data.ts, self.Data.u) # generate model predictions
+  resid = self.Data.y - y_hat # compute residuals
+  rmse  = np.sqrt(np.sum(resid**2) / len(self.Data.y)) # compute RMSE
+  r_square = 1 - (np.var(self.Data.y - y_hat) / np.var(self.Data.y)) # compute R-squared value
+  self.result = Result(p_opt=p_opt, p_cov=None, p_val=None, r_square=r_square, y_hat=y_hat, resid=resid, RMSE=rmse)
+  p_cov = self.estimate_covariance(p_opt)
+  p_val = self.pvalue(p_opt, p_cov)
+  self.result = Result(p_opt=p_opt, p_cov=p_cov, p_val=p_val, r_square=r_square, y_hat=y_hat, resid=resid, RMSE=rmse)
 
   if plot_result:
     self.plot_results()
-
-  self.result = result
-  return result</code></pre>
+  
+  if plot_diagnostics:
+    self.diagnostics()
+  return self.result</code></pre>
 </details>
 </dd>
 <dt id="pydynamics.process_models.ProcessModel.fit_params"><code class="name flex">
 <span>def <span class="ident">fit_params</span></span>(<span>self, init_guess=None)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Fit the parameters of the model using optimization.</p>
+<h2 id="parameters">Parameters:</h2>
+<p>init_guess : array-like, optional
+Initial guess for the parameters. If None, an array of ones with the same shape as <code>self.params</code> is used.</p>
+<h2 id="returns">Returns:</h2>
+<p>p_opt : array-like
+Optimized parameters.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def fit_params(self, init_guess=None):
+  &#34;&#34;&#34;
+  Fit the parameters of the model using optimization.
+
+  Parameters:
+  -----------
+  init_guess : array-like, optional
+    Initial guess for the parameters. If None, an array of ones with the same shape as `self.params` is used.
+
+  Returns:
+  --------
+  p_opt : array-like
+    Optimized parameters.
+  &#34;&#34;&#34;
   if init_guess is None:
     init_guess = np.ones(self.params.shape)
   solution = minimize(self.objective, init_guess, bounds=self.bounds)
@@ -756,8 +1744,8 @@ if __name__ == &#39;__main__&#39;:
   return p_opt</code></pre>
 </details>
 </dd>
-<dt id="pydynamics.process_models.ProcessModel.objective"><code class="name flex">
-<span>def <span class="ident">objective</span></span>(<span>self, params)</span>
+<dt id="pydynamics.process_models.ProcessModel.jacobian"><code class="name flex">
+<span>def <span class="ident">jacobian</span></span>(<span>self, params) ‑> numpy.ndarray</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -765,64 +1753,262 @@ if __name__ == &#39;__main__&#39;:
 <summary>
 <span>Expand source code</span>
 </summary>
+<pre><code class="python">def jacobian(self, params) -&gt; np.ndarray:
+  K, tau, theta = params
+  uf = interp1d(self.Data.ts, self.Data.u, fill_value=&#34;extrapolate&#34;)
+  J = np.zeros((len(self.Data.ts), 3))
+  dt = self.Data.ts[1] - self.Data.ts[0]
+
+  for i, t in enumerate(self.Data.ts):
+    if t - theta &lt;= 0:
+      u_delayed = 0
+      u_derivative = 0
+    else:
+      u_delayed = uf(t - theta)
+      u_derivative = (uf(t - theta + dt) - uf(t - theta)) / dt
+
+    J[i, 0] = u_delayed / tau
+    J[i, 1] = -(K * u_delayed - self.Data.y[i]) / tau ** 2
+    J[i, 2] = -(K / tau) * u_derivative
+
+  return J</code></pre>
+</details>
+</dd>
+<dt id="pydynamics.process_models.ProcessModel.objective"><code class="name flex">
+<span>def <span class="ident">objective</span></span>(<span>self, params)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Calculate the objective function value for given parameters.</p>
+<p>This function simulates the model with the provided parameters and computes
+the sum of squared differences between the simulated output and the actual data.</p>
+<p>Parameters:
+params (array-like): The parameters to be used for simulation.</p>
+<p>Returns:
+float: The sum of squared differences between the simulated output and the actual data.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
 <pre><code class="python">def objective(self, params):
+  &#34;&#34;&#34;
+  Calculate the objective function value for given parameters.
+
+  This function simulates the model with the provided parameters and computes
+  the sum of squared differences between the simulated output and the actual data.
+
+  Parameters:
+  params (array-like): The parameters to be used for simulation.
+
+  Returns:
+  float: The sum of squared differences between the simulated output and the actual data.
+  &#34;&#34;&#34;
   ym = self.simulate(params)
-  return np.sum((ym -self.y)**2)</code></pre>
+  return np.sum((ym - self.Data.y) ** 2)</code></pre>
+</details>
+</dd>
+<dt id="pydynamics.process_models.ProcessModel.plot_confidence_intervals"><code class="name flex">
+<span>def <span class="ident">plot_confidence_intervals</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Plots the observed data, the best fit model, and the 95% confidence intervals for the model predictions.
+This method uses the time series data, the observed response, and the predicted response from the model.
+It calculates the confidence intervals based on the covariance of the parameter estimates and simulates
+the response using the lower and upper bounds of the confidence intervals. The plot includes the observed
+data points, the best fit model line, and a shaded area representing the 95% confidence interval.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def plot_confidence_intervals(self):
+  &#34;&#34;&#34;
+  Plots the observed data, the best fit model, and the 95% confidence intervals for the model predictions.
+  This method uses the time series data, the observed response, and the predicted response from the model.
+  It calculates the confidence intervals based on the covariance of the parameter estimates and simulates
+  the response using the lower and upper bounds of the confidence intervals. The plot includes the observed
+  data points, the best fit model line, and a shaded area representing the 95% confidence interval.
+  &#34;&#34;&#34;
+  t = self.Data.ts
+  u = self.Data.u
+  y_true = self.Data.y  # Observed data
+  y_pred = self.result.y_hat
+  params = self.result.p_opt
+  ci = self.ci_from_cov(self.result.p_cov)
+
+  # Simulate using confidence interval bounds
+  params_lower = [ci[i][0] for i in range(len(params))]
+  params_upper = [ci[i][1] for i in range(len(params))]
+  y_lower = self.simulate(params_lower, self.Data.ts, self.Data.u)
+  y_upper = self.simulate(params_upper, self.Data.ts, self.Data.u)
+
+  plt.figure(figsize=(8, 5))
+  plt.plot(t, y_true, &#39;ko&#39;, markersize=3, label=&#34;Observed Data&#34;)
+  plt.plot(t, y_pred, &#39;r-&#39;, label=&#34;Best Fit Model&#34;)
+  plt.fill_between(t, y_lower, y_upper, color=&#39;red&#39;, alpha=0.3, label=&#34;95% Confidence Interval&#34;)
+
+  plt.xlabel(&#34;Time (s)&#34;)
+  plt.ylabel(&#34;Response y(t)&#34;)
+  plt.title(&#34;Model Fit with Confidence Interval&#34;)
+  plt.legend()
+  plt.grid(True)
+  plt.show()</code></pre>
 </details>
 </dd>
 <dt id="pydynamics.process_models.ProcessModel.plot_results"><code class="name flex">
 <span>def <span class="ident">plot_results</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Plots the results of the model fit, including the observed data, model predictions,
+and prediction intervals.
+This method generates a plot with two y-axes:
+- The left y-axis shows the change in output with observed data points, model predictions,
+and prediction intervals.
+- The right y-axis shows the change in input over time.
+The plot includes:
+- A title displaying the R-squared value and RMSE of the model fit.
+- Observed data points as blue dots.
+- Model predictions as a black line.
+- 95% prediction intervals as a shaded red area.
+- Standard error of the mean (SEM) intervals as a shaded red area with higher opacity.
+- Change in input as a gray line (right axis).
+The method also adjusts the layout to ensure the right y-label is not clipped.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def plot_results(self):
-  plt.subplots(2,1, sharex=True)
-  plt.suptitle(&#34;model fit&#34;)
-  
-  plt.subplot(211)
-  plt.plot(self.t, self.y, linewidth=2)
-  plt.plot(self.t, self.result[&#34;y_pred&#34;], &#39;k--&#39;)
-  plt.grid()
-  plt.title(&#34;Output&#34;)
-  plt.ylabel(&#34;Change in output&#34;)
-  plt.legend([&#34;data&#34;, &#34;model&#34;])
+  &#34;&#34;&#34;
+  Plots the results of the model fit, including the observed data, model predictions, 
+  and prediction intervals.
+  This method generates a plot with two y-axes:
+  - The left y-axis shows the change in output with observed data points, model predictions, 
+    and prediction intervals.
+  - The right y-axis shows the change in input over time.
+  The plot includes:
+  - A title displaying the R-squared value and RMSE of the model fit.
+  - Observed data points as blue dots.
+  - Model predictions as a black line.
+  - 95% prediction intervals as a shaded red area.
+  - Standard error of the mean (SEM) intervals as a shaded red area with higher opacity.
+  - Change in input as a gray line (right axis).
+  The method also adjusts the layout to ensure the right y-label is not clipped.
+  &#34;&#34;&#34;
+  # gather variables
+  ts, ys, us = self.Data
+  res = self.result
 
-  plt.subplot(212)
-  plt.plot(self.t, self.u)
-  plt.grid()
-  plt.title(&#34;Input&#34;)
-  plt.xlabel(&#34;time&#34;)
-  plt.ylabel(&#34;change in input&#34;)</code></pre>
+  # calculate prediction intervals
+  sem = np.sqrt(np.sum((res.resid)**2)/(len(ys)-3))
+  pi95 = 1.96*sem
+
+  fig, ax1 = plt.subplots(figsize=(8, 6))
+  plt.title(f&#34;Model fit: Rsq = {res.r_square:0.3f}, RMSE = {res.RMSE:0.3f}&#34;)
+
+  color = &#39;tab:blue&#39;
+  ax1.set_xlabel(&#39;time&#39;)
+  ax1.set_ylabel(&#39;Change in output&#39;, color=color)
+  ax1.fill_between(ts, res.y_hat-pi95, res.y_hat+pi95, color=&#39;r&#39;, alpha=0.15)
+  ax1.fill_between(ts, res.y_hat-sem, res.y_hat+sem, color=&#39;r&#39;, alpha=0.2)
+  ax1.plot(ts, ys, &#39;b.&#39;, label=&#39;observations&#39;, alpha=0.6)
+  ax1.plot(ts, res.y_hat, &#39;k&#39;, linewidth=1.5, label=&#39;model&#39;)
+  ax1.tick_params(axis=&#39;y&#39;, labelcolor=color)
+  ax1.legend(loc=&#39;upper left&#39;)
+  ax1.grid()
+
+  ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+  color = &#39;tab:gray&#39;
+  ax2.set_ylabel(&#39;Change in input&#39;, color=color)  # we already handled the x-label with ax1
+  ax2.plot(ts, us, color=color)
+  ax2.tick_params(axis=&#39;y&#39;, labelcolor=color)
+  ax2.set_ylim([min(us)-(0.1*max(us)), 10*max(us)])
+
+  fig.tight_layout()  # otherwise the right y-label is slightly clipped
+  plt.show()</code></pre>
+</details>
+</dd>
+<dt id="pydynamics.process_models.ProcessModel.pvalue"><code class="name flex">
+<span>def <span class="ident">pvalue</span></span>(<span>self, params, p_cov)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Compute the p-values for the model parameters.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>params</code></strong> :&ensp;<code>np.ndarray</code></dt>
+<dd>Model parameters.</dd>
+<dt><strong><code>p_cov</code></strong> :&ensp;<code>np.ndarray</code></dt>
+<dd>Covariance matrix of the parameters.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>p_values (np.ndarray): Array of p-values for each parameter.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def pvalue(self, params, p_cov):
+  &#34;&#34;&#34;
+  Compute the p-values for the model parameters.
+
+  Args:
+    params (np.ndarray): Model parameters.
+    p_cov (np.ndarray): Covariance matrix of the parameters.
+
+  Returns:
+    p_values (np.ndarray): Array of p-values for each parameter.
+
+  &#34;&#34;&#34;
+  se = np.sqrt(np.diag(p_cov))
+  t_values = params / se
+  p_values = 2 * (1 - stats.t.cdf(np.abs(t_values), len(self.Data.ts) - len(params)))
+  return p_values</code></pre>
 </details>
 </dd>
 <dt id="pydynamics.process_models.ProcessModel.step"><code class="name flex">
 <span>def <span class="ident">step</span></span>(<span>self, params=None, step=1)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Generate a step response plot for a FOPDT model with the given params</p></div>
+<div class="desc"><p>Generate a step response plot for a First Order Plus Dead Time (FOPDT) model with the given parameters.
+Parameters:
+params (list or None): Parameters for the FOPDT model. If None, uses self.result.p_opt.
+step (int): The step input value. Default is 1.
+Returns:
+None: This function generates and displays a plot.
+The function performs the following steps:
+1. If params is None, it assigns self.result.p_opt to params.
+2. Extracts the time constant (taum) from params.
+3. Creates a time array (ts) ranging from -taum to 5 * taum.
+4. Initializes an input array (us) with zeros and sets the step input after taum.
+5. Simulates the FOPDT model response using the given parameters, time array, and input array.
+6. Plots the output response and input signal on two subplots.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def step(self, params=None, step=1):
   &#34;&#34;&#34;
-  Generate a step response plot for a FOPDT model with the given params
+  Generate a step response plot for a First Order Plus Dead Time (FOPDT) model with the given parameters.
+  Parameters:
+  params (list or None): Parameters for the FOPDT model. If None, uses self.result.p_opt.
+  step (int): The step input value. Default is 1.
+  Returns:
+  None: This function generates and displays a plot.
+  The function performs the following steps:
+  1. If params is None, it assigns self.result.p_opt to params.
+  2. Extracts the time constant (taum) from params.
+  3. Creates a time array (ts) ranging from -taum to 5 * taum.
+  4. Initializes an input array (us) with zeros and sets the step input after taum.
+  5. Simulates the FOPDT model response using the given parameters, time array, and input array.
+  6. Plots the output response and input signal on two subplots.
   &#34;&#34;&#34;
   if params is None:
-    params = self.result[&#34;soln&#34;]
+    params = self.result.p_opt
   taum = params[1]
-  ts = np.arange(-taum, 5*taum)
+  ts = np.arange(-taum, 5 * taum)
 
   us = np.zeros((len(ts)))
-  us[np.int8(taum)+1:] = step
+  us[np.int8(taum) + 1:] = step
 
   y = self.simulate(params, ts, us)
   plt.figure()
-  plt.subplots(2,1, sharex=True)
+  plt.subplots(2, 1, sharex=True)
 
   plt.subplot(211)
   plt.plot(ts, y)
@@ -838,16 +2024,20 @@ if __name__ == &#39;__main__&#39;:
 </dd>
 <dt id="pydynamics.process_models.Result"><code class="flex name class">
 <span>class <span class="ident">Result</span></span>
-<span>(</span><span>p_opt, p_cov, r_square, y_hat, resid)</span>
+<span>(</span><span>p_opt, p_cov, p_val, r_square, y_hat, resid, RMSE)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Result(p_opt, p_cov, r_square, y_hat, resid)</p></div>
+<div class="desc"><p>A result container for process model fitting. Contains the optimized parameters, covariance, p-values, R-squared value, model predictions, residuals, and RMSE.</p></div>
 <h3>Ancestors</h3>
 <ul class="hlist">
 <li>builtins.tuple</li>
 </ul>
 <h3>Instance variables</h3>
 <dl>
+<dt id="pydynamics.process_models.Result.RMSE"><code class="name">var <span class="ident">RMSE</span></code></dt>
+<dd>
+<div class="desc"><p>Alias for field number 6</p></div>
+</dd>
 <dt id="pydynamics.process_models.Result.p_cov"><code class="name">var <span class="ident">p_cov</span></code></dt>
 <dd>
 <div class="desc"><p>Alias for field number 1</p></div>
@@ -856,17 +2046,21 @@ if __name__ == &#39;__main__&#39;:
 <dd>
 <div class="desc"><p>Alias for field number 0</p></div>
 </dd>
-<dt id="pydynamics.process_models.Result.r_square"><code class="name">var <span class="ident">r_square</span></code></dt>
+<dt id="pydynamics.process_models.Result.p_val"><code class="name">var <span class="ident">p_val</span></code></dt>
 <dd>
 <div class="desc"><p>Alias for field number 2</p></div>
 </dd>
+<dt id="pydynamics.process_models.Result.r_square"><code class="name">var <span class="ident">r_square</span></code></dt>
+<dd>
+<div class="desc"><p>Alias for field number 3</p></div>
+</dd>
 <dt id="pydynamics.process_models.Result.resid"><code class="name">var <span class="ident">resid</span></code></dt>
 <dd>
-<div class="desc"><p>Alias for field number 4</p></div>
+<div class="desc"><p>Alias for field number 5</p></div>
 </dd>
 <dt id="pydynamics.process_models.Result.y_hat"><code class="name">var <span class="ident">y_hat</span></code></dt>
 <dd>
-<div class="desc"><p>Alias for field number 3</p></div>
+<div class="desc"><p>Alias for field number 4</p></div>
 </dd>
 </dl>
 </dd>
@@ -875,65 +2069,104 @@ if __name__ == &#39;__main__&#39;:
 <span>(</span><span>t, y, u, params=array([1., 1., 1., 1.]))</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Base model class that handles the fitting and plotting for various process models</p></div>
+<div class="desc"><p>Base model class that handles the fitting and plotting for various process models.</p>
+<h2 id="attributes">Attributes</h2>
+<dl>
+<dt><strong><code>Data</code></strong> :&ensp;<code><a title="pydynamics.process_models.Data" href="#pydynamics.process_models.Data">Data</a></code></dt>
+<dd>An instance of the Data class containing time (t), output (y), and input (u) data.</dd>
+<dt><strong><code>uf</code></strong> :&ensp;<code>interp1d</code></dt>
+<dd>Interpolated function of the input data.</dd>
+</dl>
+<h2 id="methods">Methods</h2>
+<p><strong>init</strong>(t, y, u):
+Initializes the ProcessModel with time, output, and input data.
+objective(params):
+Computes the objective function (sum of squared errors) for given parameters.
+fit_params(init_guess=None):
+Fits the model parameters using optimization and returns the optimal parameters.
+fit_model(plot_result=False, plot_diagnostics=False):
+Fits the model, computes residuals, mean squared error, and R-squared value. Optionally plots the results and diagnostics.
+jacobian(params) -&gt; np.ndarray:
+Computes the Jacobian matrix for the given parameters.
+estimate_confidence_intervals(params):
+Estimates the 95% confidence intervals for the model parameters.
+plot_confidence_intervals():
+Plots the model fit along with the 95% confidence intervals.
+step(params=None, step=1):
+Generates a step response plot for a First Order Plus Dead Time (FOPDT) model with the given parameters.
+plot_results():
+Plots the model fit results, including prediction intervals and observed data.
+diagnostics(plot=True):
+Computes and optionally plots diagnostic metrics such as autocorrelation and cross-correlation of residuals.</p>
+<p>Initialize the process model with time, output, and input data.</p>
+<p>Parameters:
+t (array-like): Array of time points.
+y (array-like): Array of output data corresponding to the time points.
+u (array-like): Array of input data corresponding to the time points.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">class SOPDT(ProcessModel):
-    def __init__(self, t, y, u, params=np.ones((4,))):
-        super(SOPDT, self).__init__(t, y, u)
-        self.params = params
-        self.bounds = [(-np.inf, np.inf), (0.01, np.inf), (0.01, np.inf), (0, np.inf)]
+  def __init__(self, t, y, u, params=np.ones((4,))):
+    super(SOPDT, self).__init__(t, y, u)
+    self.params = params
+    self.bounds = [(-np.inf, np.inf), (0.01, np.inf), (0.01, np.inf), (0, np.inf)]
 
-    def model(self, x, t, uf, Kp, taus, zeta, thetap):
+  def model(self, x, t, uf, Kp, taus, zeta, thetap):
+    
     # Kp = process gain
     # taus = second order time constant
     # zeta = damping factor
     # thetap = model time delay
     # equation: ts^2 dy2/dt2 + 2 zeta taus dydt + y = Kp * u(t-thetap)
 
-        u0 = 0
-        try:
-            if (t-thetap) &lt;= 0:
-                um = 0
-            else:
-                um = uf(t-thetap)
-        except:
-            # catch any error
-            um = 0
-        # two states (y and y&#39;)
-        y = x[0]
-        dydt = x[1]
-        dy2dt2 = (-2.0*zeta*taus*dydt - y + Kp*(um))/taus**2
-        return [dydt,dy2dt2]
+    u0 = 0
+    try:
+      if (t - thetap) &lt;= 0:
+        um = 0
+      else:
+        um = uf(t - thetap)
+    except:
+      # catch any error
+      um = 0
+    # two states (y and y&#39;)
+    y = x[0]
+    dydt = x[1]
+    dy2dt2 = (-2.0 * zeta * taus * dydt - y + Kp * (um)) / taus ** 2
+    return [dydt, dy2dt2]
 
-    # simulate model with x=[Km, taum, zetam, thetam]
-    def simulate(self, params=None):
-        if params is None:
-            params = self.params
+  # simulate model with x=[Km, taum, zetam, thetam]
+  def simulate(self, params=None):
+    &#34;&#34;&#34;
+    Simulate the system using the given parameters.
 
-        # input arguments
-        Kp = params[0]
-        taus = params[1]
-        zeta = params[2]
-        thetap = params[3]
-        
-        uf = self.uf
-        t = self.t
-        # storage for model values
-        xm = np.zeros((len(t),2))  # model
-        # initial condition
-        xm[0] = 0
-        # loop through time steps    
-        for i in range(0, len(t)-1):
-            ts = [t[i],t[i+1]]
-            inputs = (uf, Kp, taus, zeta, thetap)
-            # integrate SOPDT model
-            x = odeint(self.model, xm[i], ts, args=inputs)
-            xm[i+1] = x[-1]
-        y = xm[:,0]
-        return y</code></pre>
+    Parameters:
+    params (tuple, optional): A tuple containing the parameters (Kp, taus, zeta, thetap) 
+                  for the simulation. If None, self.params will be used.
+    
+    Returns:
+    numpy.ndarray: The simulated output values over time.
+    &#34;&#34;&#34;
+    if params is None:
+      params = self.params
+    Kp, taus, zeta, thetap = params
+
+    uf = self.uf
+    t = self.Data.t
+    # storage for model values
+    xm = np.zeros((len(t), 2))  # model
+    # initial condition
+    xm[0] = 0
+    # loop through time steps
+    for i in range(len(t) - 1):
+      ts = [t[i], t[i + 1]]
+      inputs = (uf, Kp, taus, zeta, thetap)
+      # integrate SOPDT model
+      x = odeint(self.model, xm[i], ts, args=inputs)
+      xm[i + 1] = x[-1]
+    y = xm[:, 0]
+    return y</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -951,62 +2184,73 @@ if __name__ == &#39;__main__&#39;:
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def model(self, x, t, uf, Kp, taus, zeta, thetap):
-# Kp = process gain
-# taus = second order time constant
-# zeta = damping factor
-# thetap = model time delay
-# equation: ts^2 dy2/dt2 + 2 zeta taus dydt + y = Kp * u(t-thetap)
+  
+  # Kp = process gain
+  # taus = second order time constant
+  # zeta = damping factor
+  # thetap = model time delay
+  # equation: ts^2 dy2/dt2 + 2 zeta taus dydt + y = Kp * u(t-thetap)
 
-    u0 = 0
-    try:
-        if (t-thetap) &lt;= 0:
-            um = 0
-        else:
-            um = uf(t-thetap)
-    except:
-        # catch any error
-        um = 0
-    # two states (y and y&#39;)
-    y = x[0]
-    dydt = x[1]
-    dy2dt2 = (-2.0*zeta*taus*dydt - y + Kp*(um))/taus**2
-    return [dydt,dy2dt2]</code></pre>
+  u0 = 0
+  try:
+    if (t - thetap) &lt;= 0:
+      um = 0
+    else:
+      um = uf(t - thetap)
+  except:
+    # catch any error
+    um = 0
+  # two states (y and y&#39;)
+  y = x[0]
+  dydt = x[1]
+  dy2dt2 = (-2.0 * zeta * taus * dydt - y + Kp * (um)) / taus ** 2
+  return [dydt, dy2dt2]</code></pre>
 </details>
 </dd>
 <dt id="pydynamics.process_models.SOPDT.simulate"><code class="name flex">
 <span>def <span class="ident">simulate</span></span>(<span>self, params=None)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Simulate the system using the given parameters.</p>
+<p>Parameters:
+params (tuple, optional): A tuple containing the parameters (Kp, taus, zeta, thetap)
+for the simulation. If None, self.params will be used.</p>
+<p>Returns:
+numpy.ndarray: The simulated output values over time.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def simulate(self, params=None):
-    if params is None:
-        params = self.params
+  &#34;&#34;&#34;
+  Simulate the system using the given parameters.
 
-    # input arguments
-    Kp = params[0]
-    taus = params[1]
-    zeta = params[2]
-    thetap = params[3]
-    
-    uf = self.uf
-    t = self.t
-    # storage for model values
-    xm = np.zeros((len(t),2))  # model
-    # initial condition
-    xm[0] = 0
-    # loop through time steps    
-    for i in range(0, len(t)-1):
-        ts = [t[i],t[i+1]]
-        inputs = (uf, Kp, taus, zeta, thetap)
-        # integrate SOPDT model
-        x = odeint(self.model, xm[i], ts, args=inputs)
-        xm[i+1] = x[-1]
-    y = xm[:,0]
-    return y</code></pre>
+  Parameters:
+  params (tuple, optional): A tuple containing the parameters (Kp, taus, zeta, thetap) 
+                for the simulation. If None, self.params will be used.
+  
+  Returns:
+  numpy.ndarray: The simulated output values over time.
+  &#34;&#34;&#34;
+  if params is None:
+    params = self.params
+  Kp, taus, zeta, thetap = params
+
+  uf = self.uf
+  t = self.Data.t
+  # storage for model values
+  xm = np.zeros((len(t), 2))  # model
+  # initial condition
+  xm[0] = 0
+  # loop through time steps
+  for i in range(len(t) - 1):
+    ts = [t[i], t[i + 1]]
+    inputs = (uf, Kp, taus, zeta, thetap)
+    # integrate SOPDT model
+    x = odeint(self.model, xm[i], ts, args=inputs)
+    xm[i + 1] = x[-1]
+  y = xm[:, 0]
+  return y</code></pre>
 </details>
 </dd>
 </dl>
@@ -1014,6 +2258,15 @@ if __name__ == &#39;__main__&#39;:
 <ul class="hlist">
 <li><code><b><a title="pydynamics.process_models.ProcessModel" href="#pydynamics.process_models.ProcessModel">ProcessModel</a></b></code>:
 <ul class="hlist">
+<li><code><a title="pydynamics.process_models.ProcessModel.diagnostics" href="#pydynamics.process_models.ProcessModel.diagnostics">diagnostics</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.estimate_confidence_intervals" href="#pydynamics.process_models.ProcessModel.estimate_confidence_intervals">estimate_confidence_intervals</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.estimate_covariance" href="#pydynamics.process_models.ProcessModel.estimate_covariance">estimate_covariance</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.fit_model" href="#pydynamics.process_models.ProcessModel.fit_model">fit_model</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.fit_params" href="#pydynamics.process_models.ProcessModel.fit_params">fit_params</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.objective" href="#pydynamics.process_models.ProcessModel.objective">objective</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.plot_confidence_intervals" href="#pydynamics.process_models.ProcessModel.plot_confidence_intervals">plot_confidence_intervals</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.plot_results" href="#pydynamics.process_models.ProcessModel.plot_results">plot_results</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.pvalue" href="#pydynamics.process_models.ProcessModel.pvalue">pvalue</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.step" href="#pydynamics.process_models.ProcessModel.step">step</a></code></li>
 </ul>
 </li>
@@ -1061,20 +2314,27 @@ if __name__ == &#39;__main__&#39;:
 </li>
 <li>
 <h4><code><a title="pydynamics.process_models.ProcessModel" href="#pydynamics.process_models.ProcessModel">ProcessModel</a></code></h4>
-<ul class="two-column">
+<ul class="">
 <li><code><a title="pydynamics.process_models.ProcessModel.diagnostics" href="#pydynamics.process_models.ProcessModel.diagnostics">diagnostics</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.estimate_confidence_intervals" href="#pydynamics.process_models.ProcessModel.estimate_confidence_intervals">estimate_confidence_intervals</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.estimate_covariance" href="#pydynamics.process_models.ProcessModel.estimate_covariance">estimate_covariance</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.fit_model" href="#pydynamics.process_models.ProcessModel.fit_model">fit_model</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.fit_params" href="#pydynamics.process_models.ProcessModel.fit_params">fit_params</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.jacobian" href="#pydynamics.process_models.ProcessModel.jacobian">jacobian</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.objective" href="#pydynamics.process_models.ProcessModel.objective">objective</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.plot_confidence_intervals" href="#pydynamics.process_models.ProcessModel.plot_confidence_intervals">plot_confidence_intervals</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.plot_results" href="#pydynamics.process_models.ProcessModel.plot_results">plot_results</a></code></li>
+<li><code><a title="pydynamics.process_models.ProcessModel.pvalue" href="#pydynamics.process_models.ProcessModel.pvalue">pvalue</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.step" href="#pydynamics.process_models.ProcessModel.step">step</a></code></li>
 </ul>
 </li>
 <li>
 <h4><code><a title="pydynamics.process_models.Result" href="#pydynamics.process_models.Result">Result</a></code></h4>
-<ul class="">
+<ul class="two-column">
+<li><code><a title="pydynamics.process_models.Result.RMSE" href="#pydynamics.process_models.Result.RMSE">RMSE</a></code></li>
 <li><code><a title="pydynamics.process_models.Result.p_cov" href="#pydynamics.process_models.Result.p_cov">p_cov</a></code></li>
 <li><code><a title="pydynamics.process_models.Result.p_opt" href="#pydynamics.process_models.Result.p_opt">p_opt</a></code></li>
+<li><code><a title="pydynamics.process_models.Result.p_val" href="#pydynamics.process_models.Result.p_val">p_val</a></code></li>
 <li><code><a title="pydynamics.process_models.Result.r_square" href="#pydynamics.process_models.Result.r_square">r_square</a></code></li>
 <li><code><a title="pydynamics.process_models.Result.resid" href="#pydynamics.process_models.Result.resid">resid</a></code></li>
 <li><code><a title="pydynamics.process_models.Result.y_hat" href="#pydynamics.process_models.Result.y_hat">y_hat</a></code></li>
