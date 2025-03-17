@@ -1,3 +1,14 @@
+"""
+Module containing classes for process models and fitting dynamic models to data.
+
+Author: Ali Zaidi
+
+Version: 0.0.1
+
+(C) 2025 Ali Zaidi. All rights reserved.
+"""
+
+
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import namedtuple
@@ -9,49 +20,76 @@ from scipy import stats
 
 import pickle
 
-Data = namedtuple("Data", ["ts", "y", "u"])
-Data.__doc__ = "A data container for time series data. Contains time (ts), output (y), and input (u) data."
+class Data:
+  """
+  A data container for time series data.
 
-Result = namedtuple("Result", ["p_opt", "p_cov", "p_val", "r_square", "y_hat", "resid", "RMSE"])
-Result.__doc__ = "A result container for process model fitting. Contains the optimized parameters, covariance, p-values, R-squared value, model predictions, residuals, and RMSE."
+  Attributes:
+    ts (array-like): Array of time points.
+    y (array-like):  Array of output data corresponding to the time points.
+    u (array-like):  Array of input data corresponding to the time points.
+  """
+  def __init__(self, ts, y, u):
+    self.ts = ts
+    self.y = y
+    self.u = u
+
+  def __iter__(self):
+    return iter([self.ts, self.y, self.u])
+
+  def __repr__(self):
+    return f"Timeseries data of length {len(self.ts)}"
+  
+  def __str__(self):
+    return f"Timeseries data of length {len(self.ts)}"
+  
+
+class Result:
+  """
+  A result container for process model fitting. Contains the optimized parameters, covariance, p-values, R-squared value, model predictions, residuals, and RMSE.
+  
+  Attributes:
+    p_opt (array-like): Optimized parameters.
+    p_cov (array-like): Covariance matrix of the parameters.
+    p_val (array-like): P-values of the parameters.
+    r_square (float): R-squared value of the model fit.
+    y_hat (array-like): Model predictions.
+    resid (array-like): Residuals of the model fit.
+    RMSE (float): Root Mean Squared Error of the model fit.
+  """
+  def __init__(self, p_opt, p_cov, p_val, r_square, y_hat, resid, RMSE):
+    self.p_opt = p_opt
+    self.p_cov = p_cov
+    self.p_val = p_val
+    self.r_square = r_square
+    self.y_hat = y_hat
+    self.resid = resid
+    self.RMSE = RMSE
+
+  def __repr__(self):
+    return f"Result(p_opt={self.p_opt}, p_val={self.p_val}, r_square={self.r_square}, RMSE={self.RMSE})"
+
+  def __str__(self):
+    return f"Result(p_opt={self.p_opt}, p_val={self.p_val}, r_square={self.r_square}, RMSE={self.RMSE})"
+
 
 class ProcessModel:
   """
   Base model class that handles the fitting and plotting for various process models.
+
   Attributes:
     Data (Data): An instance of the Data class containing time (t), output (y), and input (u) data.
     uf (interp1d): Interpolated function of the input data.
-  Methods:
-    __init__(t, y, u):
-      Initializes the ProcessModel with time, output, and input data.
-    objective(params):
-      Computes the objective function (sum of squared errors) for given parameters.
-    fit_params(init_guess=None):
-      Fits the model parameters using optimization and returns the optimal parameters.
-    fit_model(plot_result=False, plot_diagnostics=False):
-      Fits the model, computes residuals, mean squared error, and R-squared value. Optionally plots the results and diagnostics.
-    jacobian(params) -> np.ndarray:
-      Computes the Jacobian matrix for the given parameters.
-    estimate_confidence_intervals(params):
-      Estimates the 95% confidence intervals for the model parameters.
-    plot_confidence_intervals():
-      Plots the model fit along with the 95% confidence intervals.
-    step(params=None, step=1):
-      Generates a step response plot for a First Order Plus Dead Time (FOPDT) model with the given parameters.
-    plot_results():
-      Plots the model fit results, including prediction intervals and observed data.
-    diagnostics(plot=True):
-      Computes and optionally plots diagnostic metrics such as autocorrelation and cross-correlation of residuals.
   """
 
   def __init__(self, t, y, u):
     """
     Initialize the process model with time, output, and input data.
 
-    Parameters:
-    t (array-like): Array of time points.
-    y (array-like): Array of output data corresponding to the time points.
-    u (array-like): Array of input data corresponding to the time points.
+    Args:
+      t (array-like): Array of time points.
+      y (array-like): Array of output data corresponding to the time points.
+      u (array-like): Array of input data corresponding to the time points.
     """
     self.Data = Data(t, y, u)
     self.uf = interp1d(t, u)
@@ -63,11 +101,11 @@ class ProcessModel:
     This function simulates the model with the provided parameters and computes
     the sum of squared differences between the simulated output and the actual data.
 
-    Parameters:
-    params (array-like): The parameters to be used for simulation.
+    Args:
+      params (array-like): The parameters to be used for simulation.
 
     Returns:
-    float: The sum of squared differences between the simulated output and the actual data.
+      float: The sum of squared differences between the simulated output and the actual data.
     """
     ym = self.simulate(params)
     return np.sum((ym - self.Data.y) ** 2)
@@ -76,15 +114,11 @@ class ProcessModel:
     """
     Fit the parameters of the model using optimization.
 
-    Parameters:
-    -----------
-    init_guess : array-like, optional
-      Initial guess for the parameters. If None, an array of ones with the same shape as `self.params` is used.
+    Args:
+      init_guess (array-like, optional): Initial guess for the parameters. If None, an array of ones with the same shape as `self.params` is used.
 
     Returns:
-    --------
-    p_opt : array-like
-      Optimized parameters.
+      p_opt (array-like): Optimized parameters.
     """
     if init_guess is None:
       init_guess = np.ones(self.params.shape)
@@ -95,33 +129,20 @@ class ProcessModel:
   def fit_model(self, plot_result=False, plot_diagnostics=False):
     """
     Fits the model to the data, computes residuals, RMSE, R-squared value, and parameter statistics.
-    Parameters:
-    -----------
-    plot_result : bool, optional
-      If True, plots the model results. Default is False.
-    plot_diagnostics : bool, optional
-      If True, plots diagnostic information. Default is False.
+
+    Args:
+      plot_result (bool, optional): If True, plots the model results. Default is False.
+      plot_diagnostics (bool, optional): If True, plots diagnostic information. Default is False.
+
     Returns:
-    --------
-    Result
-      An object containing the fitted parameters, their covariance, p-values, R-squared value, 
+      Result: An object containing the fitted parameters, their covariance, p-values, R-squared value, 
       model predictions, residuals, and RMSE.
-    Notes:
-    ------
-    This method performs the following steps:
-    1. Fits the model parameters using `fit_params`.
-    2. Simulates the model predictions using `simulate`.
-    3. Computes the residuals, RMSE, and R-squared value.
-    4. Estimates the covariance of the parameters using `estimate_covariance`.
-    5. Computes the p-values of the parameters using `pvalue`.
-    6. Stores the results in a `Result` object.
-    7. Optionally plots the results and diagnostics if `plot_result` or `plot_diagnostics` are True.
     """
-    p_opt = self.fit_params() # fit the model
-    y_hat = self.simulate(p_opt, self.Data.ts, self.Data.u) # generate model predictions
-    resid = self.Data.y - y_hat # compute residuals
-    rmse  = np.sqrt(np.sum(resid**2) / len(self.Data.y)) # compute RMSE
-    r_square = 1 - (np.var(self.Data.y - y_hat) / np.var(self.Data.y)) # compute R-squared value
+    p_opt = self.fit_params()  # fit the model
+    y_hat = self.simulate(p_opt, self.Data.ts, self.Data.u)  # generate model predictions
+    resid = self.Data.y - y_hat  # compute residuals
+    rmse = np.sqrt(np.sum(resid ** 2) / len(self.Data.y))  # compute RMSE
+    r_square = 1 - (np.var(self.Data.y - y_hat) / np.var(self.Data.y))  # compute R-squared value
     self.result = Result(p_opt=p_opt, p_cov=None, p_val=None, r_square=r_square, y_hat=y_hat, resid=resid, RMSE=rmse)
     p_cov = self.estimate_covariance(p_opt)
     p_val = self.pvalue(p_opt, p_cov)
@@ -129,12 +150,21 @@ class ProcessModel:
 
     if plot_result:
       self.plot_results()
-    
+
     if plot_diagnostics:
       self.diagnostics()
     return self.result
 
   def jacobian(self, params) -> np.ndarray:
+    """
+    Compute the Jacobian matrix of the model with respect to the parameters.
+
+    Args:
+      params (array-like): The parameters for which the Jacobian is to be computed.
+
+    Returns:
+      np.ndarray: The Jacobian matrix.
+    """
     K, tau, theta = params
     uf = interp1d(self.Data.ts, self.Data.u, fill_value="extrapolate")
     J = np.zeros((len(self.Data.ts), 3))
@@ -153,27 +183,18 @@ class ProcessModel:
       J[i, 2] = -(K / tau) * u_derivative
 
     return J
-  
 
   def estimate_covariance(self, params):
     """
     Estimate the covariance matrix of the parameters.
-    Parameters:
-    -----------
-    params : array-like
-      The parameters for which the covariance matrix is to be estimated.
-    Returns:
-    --------
-    C : ndarray or None
-      The estimated covariance matrix of the parameters. If the Jacobian is singular,
-      returns None and prints an error message.
-    Notes:
-    ------
-    The covariance matrix is estimated using the residuals from the model and the Jacobian
-    of the parameters. If the Jacobian is singular, the function will not be able to compute
-    the covariance matrix and will return None.
-    """
 
+    Args:
+      params (array-like): The parameters for which the covariance matrix is to be estimated.
+
+    Returns:
+      np.ndarray or None: The estimated covariance matrix of the parameters. If the Jacobian is singular,
+      returns None and prints an error message.
+    """
     res = self.result.resid
     sigma2 = np.sum(res ** 2) / (len(self.Data.ts) - len(params))
     J = self.jacobian(params)
@@ -185,9 +206,8 @@ class ProcessModel:
       print("Jacobian is singular. Cannot compute confidence intervals.")
       return None
 
-    # Standard errors
     return C
-  
+
   def estimate_confidence_intervals(self, p_cov):
     """
     Compute 95% confidence intervals of MLE parameters from the covariance matrix.
@@ -196,10 +216,8 @@ class ProcessModel:
       p_cov (np.ndarray): Covariance matrix of the parameters.
 
     Returns:
-      confidence_intervals (list): List of tuples containing the lower and upper bounds of the confidence intervals for each parameter.
-
+      list: List of tuples containing the lower and upper bounds of the confidence intervals for each parameter.
     """
-    
     se = np.sqrt(np.diag(p_cov))
     p_opt = self.result.p_opt
 
@@ -221,14 +239,13 @@ class ProcessModel:
       p_cov (np.ndarray): Covariance matrix of the parameters.
 
     Returns:
-      p_values (np.ndarray): Array of p-values for each parameter.
-
+      np.ndarray: Array of p-values for each parameter.
     """
     se = np.sqrt(np.diag(p_cov))
     t_values = params / se
     p_values = 2 * (1 - stats.t.cdf(np.abs(t_values), len(self.Data.ts) - len(params)))
     return p_values
-  
+
   @staticmethod
   def ttest(mu1, sigma1, n1, mu2, sigma2, n2) -> float:
     """
@@ -242,19 +259,17 @@ class ProcessModel:
       n1 (int): Number of datapoints from the first sample.
       mu2 (float): Mean of the second sample.
       sigma2 (float): Standard deviation of the second sample.
-      n2 (int): Number of datapoitns for the second sample.
+      n2 (int): Number of datapoints for the second sample.
 
     Returns:
-      t_value (float): The calculated t-value for the two-sample t-test.
-      p_value (float): The calculated p-value for the two-sample t-test.
-
+      t-stat (float): The calculated t-value for the two-sample t-test.
+      p-value (float): The calculated p-value for the two-sample t-test.
     """
-
     t_value = (mu1 - mu2) / np.sqrt(sigma1 ** 2 / n1 + sigma2 ** 2 / n2)
     p_value = 2 * (1 - stats.t.cdf(np.abs(t_value), n1 + n2 - 2))
 
     return t_value, p_value
-  
+
   def save_model(self, filename):
     """
     Save the model object to a file using pickle.
@@ -268,10 +283,10 @@ class ProcessModel:
     with open(filename, 'wb') as file:
       pickle.dump(self, file)
 
-
   def plot_confidence_intervals(self):
     """
     Plots the observed data, the best fit model, and the 95% confidence intervals for the model predictions.
+
     This method uses the time series data, the observed response, and the predicted response from the model.
     It calculates the confidence intervals based on the covariance of the parameter estimates and simulates
     the response using the lower and upper bounds of the confidence intervals. The plot includes the observed
@@ -305,11 +320,14 @@ class ProcessModel:
   def step(self, params=None, step=1):
     """
     Generate a step response plot for a First Order Plus Dead Time (FOPDT) model with the given parameters.
-    Parameters:
-    params (list or None): Parameters for the FOPDT model. If None, uses self.result.p_opt.
-    step (int): The step input value. Default is 1.
+
+    Args:
+      params (list or None): Parameters for the FOPDT model. If None, uses self.result.p_opt.
+      step (int): The step input value. Default is 1.
+
     Returns:
-    None: This function generates and displays a plot.
+      None: This function generates and displays a plot.
+
     The function performs the following steps:
     1. If params is None, it assigns self.result.p_opt to params.
     2. Extracts the time constant (taum) from params.
@@ -343,10 +361,12 @@ class ProcessModel:
     """
     Plots the results of the model fit, including the observed data, model predictions, 
     and prediction intervals.
+
     This method generates a plot with two y-axes:
     - The left y-axis shows the change in output with observed data points, model predictions, 
       and prediction intervals.
     - The right y-axis shows the change in input over time.
+
     The plot includes:
     - A title displaying the R-squared value and RMSE of the model fit.
     - Observed data points as blue dots.
@@ -354,6 +374,7 @@ class ProcessModel:
     - 95% prediction intervals as a shaded red area.
     - Standard error of the mean (SEM) intervals as a shaded red area with higher opacity.
     - Change in input as a gray line (right axis).
+
     The method also adjusts the layout to ensure the right y-label is not clipped.
     """
     # gather variables
@@ -361,8 +382,8 @@ class ProcessModel:
     res = self.result
 
     # calculate prediction intervals
-    sem = np.sqrt(np.sum((res.resid)**2)/(len(ys)-3))
-    pi95 = 1.96*sem
+    sem = np.sqrt(np.sum((res.resid) ** 2) / (len(ys) - 3))
+    pi95 = 1.96 * sem
 
     fig, ax1 = plt.subplots(figsize=(8, 6))
     plt.title(f"Model fit: Rsq = {res.r_square:0.3f}, RMSE = {res.RMSE:0.3f}")
@@ -370,8 +391,8 @@ class ProcessModel:
     color = 'tab:blue'
     ax1.set_xlabel('time')
     ax1.set_ylabel('Change in output', color=color)
-    ax1.fill_between(ts, res.y_hat-pi95, res.y_hat+pi95, color='r', alpha=0.15)
-    ax1.fill_between(ts, res.y_hat-sem, res.y_hat+sem, color='r', alpha=0.2)
+    ax1.fill_between(ts, res.y_hat - pi95, res.y_hat + pi95, color='r', alpha=0.15, label='95% PI')
+    ax1.fill_between(ts, res.y_hat - sem, res.y_hat + sem, color='r', alpha=0.2, label='SE PI')
     ax1.plot(ts, ys, 'b.', label='observations', alpha=0.6)
     ax1.plot(ts, res.y_hat, 'k', linewidth=1.5, label='model')
     ax1.tick_params(axis='y', labelcolor=color)
@@ -383,7 +404,7 @@ class ProcessModel:
     ax2.set_ylabel('Change in input', color=color)  # we already handled the x-label with ax1
     ax2.plot(ts, us, color=color)
     ax2.tick_params(axis='y', labelcolor=color)
-    ax2.set_ylim([min(us)-(0.1*max(us)), 10*max(us)])
+    ax2.set_ylim([min(us) - (0.1 * max(us)), 10 * max(us)])
 
     fig.tight_layout()  # otherwise the right y-label is slightly clipped
     plt.show()
@@ -391,35 +412,34 @@ class ProcessModel:
   def diagnostics(self, plot=True):
     """
     Perform diagnostics on the model's residuals and input data.
+
     This method calculates and prints the mean squared values of the 
     autocorrelation and cross-correlation functions of the residuals 
     and their differences. Optionally, it plots these diagnostics.
-    Parameters:
-    -----------
-    plot : bool, optional
-      If True, plots the diagnostics. Default is True.
+
+    Args:
+      plot (bool, optional): If True, plots the diagnostics. Default is True.
+
     Attributes:
-    -----------
-    cc_means : dict
-      A dictionary containing the mean squared values of the 
+      cc_means (dict): A dictionary containing the mean squared values of the 
       autocorrelation and cross-correlation functions:
-      - "acf": Autocorrelation of residuals
-      - "ccf": Cross-correlation of residuals with input
-      - "acfd": Autocorrelation of residual differences
-      - "ccfd": Cross-correlation of residual differences with input
+        - "acf": Autocorrelation of residuals
+        - "ccf": Cross-correlation of residuals with input
+        - "acfd": Autocorrelation of residual differences
+        - "ccfd": Cross-correlation of residual differences with input
+
     Prints:
-    -------
-    Mean squared values of the autocorrelation and cross-correlation 
-    functions.
+      Mean absolute values of the autocorrelation and cross-correlation 
+      functions.
+
     Plots:
-    ------
-    If plot is True, generates the following plots:
-    - Residuals
-    - Autocorrelation of residuals
-    - Cross-correlation of residuals with input
-    - Residual differences
-    - Autocorrelation of residual differences
-    - Cross-correlation of residual differences with input
+      If plot is True, generates the following plots:
+        - Residuals
+        - Autocorrelation of residuals
+        - Cross-correlation of residuals with input
+        - Residual differences
+        - Autocorrelation of residual differences
+        - Cross-correlation of residual differences with input
     """
     t = self.Data.ts
     dt = t[1] - t[0]
@@ -440,7 +460,7 @@ class ProcessModel:
 
     self.cc_means = dict({"acf": np.mean(acf ** 2), "ccf": np.mean(ccf ** 2), "acfd": np.mean(acfd ** 2), "ccfd": np.mean(ccfd ** 2)})
 
-    print(f"{np.mean(acf ** 2):0.3f}, {np.mean(ccf ** 2):0.3f}, {np.mean(acfd ** 2):0.3f}, {np.mean(ccfd ** 2):0.3f}")
+    print(f"Residual ACF:{np.mean(acf ** 2):0.3f}, CCF:{np.mean(ccf ** 2):0.3f}, ACFD:{np.mean(acfd ** 2):0.3f}, CCFD:{np.mean(ccfd ** 2):0.3f}")
 
     if plot:
       plt.subplots(3, 2)
@@ -481,21 +501,26 @@ class ProcessModel:
 
 
 class FOPDT(ProcessModel):
-  """"
+  """
   First-Order Plus Dead Time (FOPDT) process model.
   This class represents a first-order plus dead time (FOPDT) process model, which is commonly used in process control to describe the dynamic behavior of a system.
+
   Attributes:
-  params : numpy.ndarray
-    An array containing the default parameters of the system (K, tau, theta).
-  bounds : list
-    A list of tuples specifying the bounds for the parameters (K, tau, theta).
-  tmin : float
-    The minimum time value in the time vector `t`.
-  Methods:
-  model(y, t, uf, K, tau, theta)
-  simulate(params=None, t=None, u=None)
+    params (numpy.ndarray): An array containing the default parameters of the system (K, tau, theta).
+    bounds (list): A list of tuples specifying the bounds for the parameters (K, tau, theta).
+    tmin (float):  The minimum time value in the time vector `t`.
+
   """
   def __init__(self, t, y, u, params=np.ones((3,))):
+    """
+    Initialize the FOPDT model with time, output, and input data.
+    
+    Args:
+      t (array-like): Array of time points.
+      y (array-like): Array of output data corresponding to the time points.
+      u (array-like): Array of input data corresponding to the time points.
+      params (array-like, optional): Default parameters for the FOPDT model. Default is np.ones((3,)).
+    """
     super(FOPDT, self).__init__(t, y, u)
     self.params = params
     self.bounds = [(-np.inf, np.inf), (0.1, np.inf), (0., np.inf)]
@@ -505,16 +530,16 @@ class FOPDT(ProcessModel):
     """
     Computes the derivative of the system state `y` at time `t` for a given input function `uf`.
 
-    Parameters:
-    y (float): The current state of the system.
-    t (float): The current time.
-    uf (function): A function representing the input to the system, which takes time `t` as an argument.
-    K (float): The system gain.
-    tau (float): The system time constant.
-    theta (float): The time delay of the system.
+    Args:
+      y (float): The current state of the system.
+      t (float): The current time.
+      uf (function): A function representing the input to the system, which takes time `t` as an argument.
+      K (float): The system gain.
+      tau (float): The system time constant.
+      theta (float): The time delay of the system.
 
     Returns:
-    float: The derivative of the system state `y` at time `t`.
+      dy/dt (float): The derivative of the system state `y` at time `t`.
     """
     try:
       if t - theta <= self.tmin:
@@ -528,19 +553,15 @@ class FOPDT(ProcessModel):
 
   def simulate(self, params=None, t=None, u=None):
     """
-    Simulates the dynamic system using the provided parameters, time vector, and input signal.
-    Parameters:
-    -----------
-    params : tuple, optional
-      A tuple containing the system parameters (K, tau, theta). If not provided, the default parameters of the object are used.
-    t : array-like, optional
-      The time vector for the simulation. If not provided, the default time vector of the object is used.
-    u : array-like, optional
-      The input signal for the simulation. If not provided, the default input signal of the object is used.
+    Simulate the dynamic system using the provided parameters, time vector, and input signal.
+
+    Args:
+      params (tuple, optional): A tuple containing the system parameters (K, tau, theta). If not provided, the default parameters of the object are used.
+      t (array-like, optional): The time vector for the simulation. If not provided, the default time vector of the object is used.
+      u (array-like, optional): The input signal for the simulation. If not provided, the default input signal of the object is used.
+
     Returns:
-    --------
-    ym : numpy.ndarray
-      The simulated output of the dynamic system over the given time vector.
+      ym (numpy.ndarray): The simulated output of the dynamic system over the given time vector.
     """
     if params is None:
       params = self.params
