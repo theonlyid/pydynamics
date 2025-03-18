@@ -44,6 +44,7 @@ Version: 0.0.1
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import namedtuple
+import warnings
 
 from scipy.integrate import odeint
 from scipy.optimize import minimize
@@ -142,9 +143,11 @@ class ProcessModel:
     ym = self.simulate(params)
     return np.sum((ym - self.Data.y) ** 2)
 
-  def fit_params(self, init_guess=None):
+  def _fit_params(self, init_guess=None):
     &#34;&#34;&#34;
     Fit the parameters of the model using optimization.
+
+    This is an internal method and shouldn&#39;t be used directly. Use `fit_model` instead.
 
     Args:
       init_guess (array-like, optional): Initial guess for the parameters. If None, an array of ones with the same shape as `self.params` is used.
@@ -170,7 +173,7 @@ class ProcessModel:
       Result: An object containing the fitted parameters, their covariance, p-values, R-squared value, 
       model predictions, residuals, and RMSE.
     &#34;&#34;&#34;
-    p_opt = self.fit_params()  # fit the model
+    p_opt = self._fit_params()  # fit the model
     y_hat = self.simulate(p_opt, self.Data.ts, self.Data.u)  # generate model predictions
     resid = self.Data.y - y_hat  # compute residuals
     rmse = np.sqrt(np.sum(resid ** 2) / len(self.Data.y))  # compute RMSE
@@ -179,6 +182,8 @@ class ProcessModel:
     p_cov = self.estimate_covariance(p_opt)
     p_val = self.pvalue(p_opt, p_cov)
     self.result = Result(p_opt=p_opt, p_cov=p_cov, p_val=p_val, r_square=r_square, y_hat=y_hat, resid=resid, RMSE=rmse)
+    ks = stats.kstest(resid, &#39;norm&#39;, (0, resid.std()))
+    print(f&#34;KS Test of Residuals: p={ks.pvalue:0.3f}&#34;)
 
     if plot_result:
       self.plot_results()
@@ -984,7 +989,6 @@ This class represents a first-order plus dead time (FOPDT) process model, which 
 <li><code><a title="pydynamics.process_models.ProcessModel.estimate_confidence_intervals" href="#pydynamics.process_models.ProcessModel.estimate_confidence_intervals">estimate_confidence_intervals</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.estimate_covariance" href="#pydynamics.process_models.ProcessModel.estimate_covariance">estimate_covariance</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.fit_model" href="#pydynamics.process_models.ProcessModel.fit_model">fit_model</a></code></li>
-<li><code><a title="pydynamics.process_models.ProcessModel.fit_params" href="#pydynamics.process_models.ProcessModel.fit_params">fit_params</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.jacobian" href="#pydynamics.process_models.ProcessModel.jacobian">jacobian</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.objective" href="#pydynamics.process_models.ProcessModel.objective">objective</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.plot_confidence_intervals" href="#pydynamics.process_models.ProcessModel.plot_confidence_intervals">plot_confidence_intervals</a></code></li>
@@ -1061,9 +1065,11 @@ This class represents a first-order plus dead time (FOPDT) process model, which 
     ym = self.simulate(params)
     return np.sum((ym - self.Data.y) ** 2)
 
-  def fit_params(self, init_guess=None):
+  def _fit_params(self, init_guess=None):
     &#34;&#34;&#34;
     Fit the parameters of the model using optimization.
+
+    This is an internal method and shouldn&#39;t be used directly. Use `fit_model` instead.
 
     Args:
       init_guess (array-like, optional): Initial guess for the parameters. If None, an array of ones with the same shape as `self.params` is used.
@@ -1089,7 +1095,7 @@ This class represents a first-order plus dead time (FOPDT) process model, which 
       Result: An object containing the fitted parameters, their covariance, p-values, R-squared value, 
       model predictions, residuals, and RMSE.
     &#34;&#34;&#34;
-    p_opt = self.fit_params()  # fit the model
+    p_opt = self._fit_params()  # fit the model
     y_hat = self.simulate(p_opt, self.Data.ts, self.Data.u)  # generate model predictions
     resid = self.Data.y - y_hat  # compute residuals
     rmse = np.sqrt(np.sum(resid ** 2) / len(self.Data.y))  # compute RMSE
@@ -1098,6 +1104,8 @@ This class represents a first-order plus dead time (FOPDT) process model, which 
     p_cov = self.estimate_covariance(p_opt)
     p_val = self.pvalue(p_opt, p_cov)
     self.result = Result(p_opt=p_opt, p_cov=p_cov, p_val=p_val, r_square=r_square, y_hat=y_hat, resid=resid, RMSE=rmse)
+    ks = stats.kstest(resid, &#39;norm&#39;, (0, resid.std()))
+    print(f&#34;KS Test of Residuals: p={ks.pvalue:0.3f}&#34;)
 
     if plot_result:
       self.plot_results()
@@ -1763,7 +1771,7 @@ functions.</p>
     Result: An object containing the fitted parameters, their covariance, p-values, R-squared value, 
     model predictions, residuals, and RMSE.
   &#34;&#34;&#34;
-  p_opt = self.fit_params()  # fit the model
+  p_opt = self._fit_params()  # fit the model
   y_hat = self.simulate(p_opt, self.Data.ts, self.Data.u)  # generate model predictions
   resid = self.Data.y - y_hat  # compute residuals
   rmse = np.sqrt(np.sum(resid ** 2) / len(self.Data.y))  # compute RMSE
@@ -1772,6 +1780,8 @@ functions.</p>
   p_cov = self.estimate_covariance(p_opt)
   p_val = self.pvalue(p_opt, p_cov)
   self.result = Result(p_opt=p_opt, p_cov=p_cov, p_val=p_val, r_square=r_square, y_hat=y_hat, resid=resid, RMSE=rmse)
+  ks = stats.kstest(resid, &#39;norm&#39;, (0, resid.std()))
+  print(f&#34;KS Test of Residuals: p={ks.pvalue:0.3f}&#34;)
 
   if plot_result:
     self.plot_results()
@@ -1779,39 +1789,6 @@ functions.</p>
   if plot_diagnostics:
     self.diagnostics()
   return self.result</code></pre>
-</details>
-</dd>
-<dt id="pydynamics.process_models.ProcessModel.fit_params"><code class="name flex">
-<span>def <span class="ident">fit_params</span></span>(<span>self, init_guess=None)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Fit the parameters of the model using optimization.</p>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>init_guess</code></strong> :&ensp;<code>array-like</code>, optional</dt>
-<dd>Initial guess for the parameters. If None, an array of ones with the same shape as <code>self.params</code> is used.</dd>
-</dl>
-<h2 id="returns">Returns</h2>
-<p>p_opt (array-like): Optimized parameters.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def fit_params(self, init_guess=None):
-  &#34;&#34;&#34;
-  Fit the parameters of the model using optimization.
-
-  Args:
-    init_guess (array-like, optional): Initial guess for the parameters. If None, an array of ones with the same shape as `self.params` is used.
-
-  Returns:
-    p_opt (array-like): Optimized parameters.
-  &#34;&#34;&#34;
-  if init_guess is None:
-    init_guess = np.ones(self.params.shape)
-  solution = minimize(self.objective, init_guess, bounds=self.bounds)
-  p_opt = solution.x
-  return p_opt</code></pre>
 </details>
 </dd>
 <dt id="pydynamics.process_models.ProcessModel.jacobian"><code class="name flex">
@@ -2401,7 +2378,6 @@ numpy.ndarray: The simulated output values over time.</p></div>
 <li><code><a title="pydynamics.process_models.ProcessModel.estimate_confidence_intervals" href="#pydynamics.process_models.ProcessModel.estimate_confidence_intervals">estimate_confidence_intervals</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.estimate_covariance" href="#pydynamics.process_models.ProcessModel.estimate_covariance">estimate_covariance</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.fit_model" href="#pydynamics.process_models.ProcessModel.fit_model">fit_model</a></code></li>
-<li><code><a title="pydynamics.process_models.ProcessModel.fit_params" href="#pydynamics.process_models.ProcessModel.fit_params">fit_params</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.jacobian" href="#pydynamics.process_models.ProcessModel.jacobian">jacobian</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.objective" href="#pydynamics.process_models.ProcessModel.objective">objective</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.plot_confidence_intervals" href="#pydynamics.process_models.ProcessModel.plot_confidence_intervals">plot_confidence_intervals</a></code></li>
@@ -2447,7 +2423,6 @@ numpy.ndarray: The simulated output values over time.</p></div>
 <li><code><a title="pydynamics.process_models.ProcessModel.estimate_confidence_intervals" href="#pydynamics.process_models.ProcessModel.estimate_confidence_intervals">estimate_confidence_intervals</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.estimate_covariance" href="#pydynamics.process_models.ProcessModel.estimate_covariance">estimate_covariance</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.fit_model" href="#pydynamics.process_models.ProcessModel.fit_model">fit_model</a></code></li>
-<li><code><a title="pydynamics.process_models.ProcessModel.fit_params" href="#pydynamics.process_models.ProcessModel.fit_params">fit_params</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.jacobian" href="#pydynamics.process_models.ProcessModel.jacobian">jacobian</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.objective" href="#pydynamics.process_models.ProcessModel.objective">objective</a></code></li>
 <li><code><a title="pydynamics.process_models.ProcessModel.plot_confidence_intervals" href="#pydynamics.process_models.ProcessModel.plot_confidence_intervals">plot_confidence_intervals</a></code></li>

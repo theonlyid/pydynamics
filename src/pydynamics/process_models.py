@@ -12,6 +12,7 @@ Version: 0.0.1
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import namedtuple
+import warnings
 
 from scipy.integrate import odeint
 from scipy.optimize import minimize
@@ -110,9 +111,11 @@ class ProcessModel:
     ym = self.simulate(params)
     return np.sum((ym - self.Data.y) ** 2)
 
-  def fit_params(self, init_guess=None):
+  def _fit_params(self, init_guess=None):
     """
     Fit the parameters of the model using optimization.
+
+    This is an internal method and shouldn't be used directly. Use `fit_model` instead.
 
     Args:
       init_guess (array-like, optional): Initial guess for the parameters. If None, an array of ones with the same shape as `self.params` is used.
@@ -138,7 +141,7 @@ class ProcessModel:
       Result: An object containing the fitted parameters, their covariance, p-values, R-squared value, 
       model predictions, residuals, and RMSE.
     """
-    p_opt = self.fit_params()  # fit the model
+    p_opt = self._fit_params()  # fit the model
     y_hat = self.simulate(p_opt, self.Data.ts, self.Data.u)  # generate model predictions
     resid = self.Data.y - y_hat  # compute residuals
     rmse = np.sqrt(np.sum(resid ** 2) / len(self.Data.y))  # compute RMSE
@@ -147,6 +150,8 @@ class ProcessModel:
     p_cov = self.estimate_covariance(p_opt)
     p_val = self.pvalue(p_opt, p_cov)
     self.result = Result(p_opt=p_opt, p_cov=p_cov, p_val=p_val, r_square=r_square, y_hat=y_hat, resid=resid, RMSE=rmse)
+    ks = stats.kstest(resid, 'norm', (0, resid.std()))
+    print(f"KS Test of Residuals: p={ks.pvalue:0.3f}")
 
     if plot_result:
       self.plot_results()
