@@ -21,7 +21,7 @@ from scipy import stats
 
 import pickle
 
-class Data:
+class data:
   """
   A data container for time series data.
 
@@ -79,7 +79,7 @@ class ProcessModel:
   Base model class that handles the fitting and plotting for various process models.
 
   Attributes:
-    Data (Data): An instance of the Data class containing time (t), output (y), and input (u) data.
+    data (data): An instance of the data class containing time (t), output (y), and input (u) data.
     uf (interp1d): Interpolated function of the input data.
   """
 
@@ -92,7 +92,7 @@ class ProcessModel:
       y (array-like): Array of output data corresponding to the time points.
       u (array-like): Array of input data corresponding to the time points.
     """
-    self.Data = Data(t, y, u)
+    self.data = data(t, y, u)
     self.uf = interp1d(t, u)
 
   def objective(self, params):
@@ -109,7 +109,7 @@ class ProcessModel:
       float: The sum of squared differences between the simulated output and the actual data.
     """
     ym = self.simulate(params)
-    return np.sum((ym - self.Data.y) ** 2)
+    return np.sum((ym - self.data.y) ** 2)
 
   def _fit_params(self, init_guess=None):
     """
@@ -142,10 +142,10 @@ class ProcessModel:
       model predictions, residuals, and RMSE.
     """
     p_opt = self._fit_params()  # fit the model
-    y_hat = self.simulate(p_opt, self.Data.ts, self.Data.u)  # generate model predictions
-    resid = self.Data.y - y_hat  # compute residuals
-    rmse = np.sqrt(np.sum(resid ** 2) / len(self.Data.y))  # compute RMSE
-    r_square = 1 - (np.var(self.Data.y - y_hat) / np.var(self.Data.y))  # compute R-squared value
+    y_hat = self.simulate(p_opt, self.data.ts, self.data.u)  # generate model predictions
+    resid = self.data.y - y_hat  # compute residuals
+    rmse = np.sqrt(np.sum(resid ** 2) / len(self.data.y))  # compute RMSE
+    r_square = 1 - (np.var(self.data.y - y_hat) / np.var(self.data.y))  # compute R-squared value
     self.result = Result(p_opt=p_opt, p_cov=None, p_val=None, r_square=r_square, y_hat=y_hat, resid=resid, RMSE=rmse)
     p_cov = self.estimate_covariance(p_opt)
     p_val = self.pvalue(p_opt, p_cov)
@@ -171,11 +171,11 @@ class ProcessModel:
       np.ndarray: The Jacobian matrix.
     """
     K, tau, theta = params
-    uf = interp1d(self.Data.ts, self.Data.u, fill_value="extrapolate")
-    J = np.zeros((len(self.Data.ts), 3))
-    dt = self.Data.ts[1] - self.Data.ts[0]
+    uf = interp1d(self.data.ts, self.data.u, fill_value="extrapolate")
+    J = np.zeros((len(self.data.ts), 3))
+    dt = self.data.ts[1] - self.data.ts[0]
 
-    for i, t in enumerate(self.Data.ts):
+    for i, t in enumerate(self.data.ts):
       if t - theta <= 0:
         u_delayed = 0
         u_derivative = 0
@@ -184,7 +184,7 @@ class ProcessModel:
         u_derivative = (uf(t - theta + dt) - uf(t - theta)) / dt
 
       J[i, 0] = u_delayed / tau
-      J[i, 1] = -(K * u_delayed - self.Data.y[i]) / tau ** 2
+      J[i, 1] = -(K * u_delayed - self.data.y[i]) / tau ** 2
       J[i, 2] = -(K / tau) * u_derivative
 
     return J
@@ -201,7 +201,7 @@ class ProcessModel:
       returns None and prints an error message.
     """
     res = self.result.resid
-    sigma2 = np.sum(res ** 2) / (len(self.Data.ts) - len(params))
+    sigma2 = np.sum(res ** 2) / (len(self.data.ts) - len(params))
     J = self.jacobian(params)
 
     # Covariance matrix
@@ -248,7 +248,7 @@ class ProcessModel:
     """
     se = np.sqrt(np.diag(p_cov))
     t_values = params / se
-    p_values = 2 * (1 - stats.t.cdf(np.abs(t_values), len(self.Data.ts) - len(params)))
+    p_values = 2 * (1 - stats.t.cdf(np.abs(t_values), len(self.data.ts) - len(params)))
     return p_values
 
   @staticmethod
@@ -297,9 +297,9 @@ class ProcessModel:
     the response using the lower and upper bounds of the confidence intervals. The plot includes the observed
     data points, the best fit model line, and a shaded area representing the 95% confidence interval.
     """
-    t = self.Data.ts
-    u = self.Data.u
-    y_true = self.Data.y  # Observed data
+    t = self.data.ts
+    u = self.data.u
+    y_true = self.data.y  # Observed data
     y_pred = self.result.y_hat
     params = self.result.p_opt
     ci = self.ci_from_cov(self.result.p_cov)
@@ -307,11 +307,11 @@ class ProcessModel:
     # Simulate using confidence interval bounds
     params_lower = [ci[i][0] for i in range(len(params))]
     params_upper = [ci[i][1] for i in range(len(params))]
-    y_lower = self.simulate(params_lower, self.Data.ts, self.Data.u)
-    y_upper = self.simulate(params_upper, self.Data.ts, self.Data.u)
+    y_lower = self.simulate(params_lower, self.data.ts, self.data.u)
+    y_upper = self.simulate(params_upper, self.data.ts, self.data.u)
 
     plt.figure(figsize=(8, 5))
-    plt.plot(t, y_true, 'ko', markersize=3, label="Observed Data")
+    plt.plot(t, y_true, 'ko', markersize=3, label="Observed data")
     plt.plot(t, y_pred, 'r-', label="Best Fit Model")
     plt.fill_between(t, y_lower, y_upper, color='red', alpha=0.3, label="95% Confidence Interval")
 
@@ -383,7 +383,7 @@ class ProcessModel:
     The method also adjusts the layout to ensure the right y-label is not clipped.
     """
     # gather variables
-    ts, ys, us = self.Data
+    ts, ys, us = self.data
     res = self.result
 
     # calculate prediction intervals
@@ -446,11 +446,11 @@ class ProcessModel:
         - Autocorrelation of residual differences
         - Cross-correlation of residual differences with input
     """
-    t = self.Data.ts
+    t = self.data.ts
     dt = t[1] - t[0]
     resid = self.result.resid
     res_norm = resid / np.linalg.norm(resid)
-    u_norm = self.Data.u / np.linalg.norm(self.Data.u)
+    u_norm = self.data.u / np.linalg.norm(self.data.u)
 
     resd = np.diff(resid)
     resd_norm = np.diff(resd) / np.linalg.norm(np.diff(resd))
@@ -573,10 +573,10 @@ class FOPDT(ProcessModel):
     K, tau, theta = params
 
     if t is None:
-      t = self.Data.ts
+      t = self.data.ts
 
     if u is None:
-      u = self.Data.u
+      u = self.data.u
 
     uf = interp1d(t, u)
     ym = np.zeros(len(t))
@@ -635,7 +635,7 @@ class SOPDT(ProcessModel):
     Kp, taus, zeta, thetap = params
 
     uf = self.uf
-    t = self.Data.t
+    t = self.data.t
     # storage for model values
     xm = np.zeros((len(t), 2))  # model
     # initial condition
