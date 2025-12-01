@@ -441,7 +441,7 @@ class ProcessModel:
     fig.tight_layout()
     plt.show()
 
-def diagnostics(self, plot=True):
+  def diagnostics(self, plot=True):
     """
     Perform diagnostics on the model's residuals and input data.
 
