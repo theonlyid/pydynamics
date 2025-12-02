@@ -156,7 +156,8 @@ class ProcessModel:
     y_u2 = self.simulate(p_opt, t, zeros, u2)
 
     r_square_u1 = 1 - (np.var(self.Data.y - y_u1) / np.var(self.Data.y))  # compute R-squared for u1 only
-    r_square_u2 = 1 - (np.var(self.Data.y - y_u2) / np.var(self.Data.y))  # compute R-squared for u2 only
+    r_square_u2 = r_square - r_square_u1
+    # r_square_u2 = 1 - (np.var(self.Data.y - y_u2) / np.var(self.Data.y))  # compute R-squared for u2 only
 
     rs = {'marginal': r_square, 'conditional': [r_square_u1, r_square_u2]}
 
@@ -722,6 +723,7 @@ if __name__ == '__main__':
   yn = ys + noise
   fom = FOPDT(t, yn, u, u1) # initialize the model with noisy data
   result = fom.fit_model(plot_result=False) # fit the model to the data and plot the results
+  print(result.p_opt)
   print(result.r_square)
   # print(f"Params: K: {result.p_opt[0]:0.3f}, tau: {result.p_opt[1]:0.3f}, theta: {result.p_opt[2]:0.3f}")
   # print(f"P-values: K: {result.p_val[0]:0.3f}, tau: {result.p_val[1]:0.3f}, theta: {result.p_val[2]:0.3f}")
