@@ -54,7 +54,7 @@ class Result:
     p_opt (array-like): Optimized parameters.
     p_cov (array-like): Covariance matrix of the parameters.
     p_val (array-like): P-values of the parameters.
-    r_square (float): R-squared value of the model fit.
+    r_square (dict): Marginal and conditional R-squared values of the model fit.
     y_hat (array-like): Model predictions.
     resid (array-like): Residuals of the model fit.
     RMSE (float): Root Mean Squared Error of the model fit.
@@ -69,10 +69,10 @@ class Result:
     self.RMSE = RMSE
 
   def __repr__(self):
-    return f"Result(p_opt={self.p_opt}, p_val={self.p_val}, r_square={self.r_square}, RMSE={self.RMSE})"
+    return f"Result(p_opt={self.p_opt}, p_val={self.p_val}, r_square={self.r_square.marginal}, RMSE={self.RMSE})"
 
   def __str__(self):
-    return f"Result(p_opt={self.p_opt}, p_val={self.p_val}, r_square={self.r_square}, RMSE={self.RMSE})"
+    return f"Result(p_opt={self.p_opt}, p_val={self.p_val}, r_square={self.r_square.marginal}, RMSE={self.RMSE})"
 
 
 class ProcessModel:
@@ -148,10 +148,22 @@ class ProcessModel:
     resid = self.Data.y - y_hat  # compute residuals
     rmse = np.sqrt(np.sum(resid ** 2) / len(self.Data.y))  # compute RMSE
     r_square = 1 - (np.var(self.Data.y - y_hat) / np.var(self.Data.y))  # compute R-squared value
-    self.result = Result(p_opt=p_opt, p_cov=None, p_val=None, r_square=r_square, y_hat=y_hat, resid=resid, RMSE=rmse)
+
+    # Adding conditional R2 calculations
+    t, u, u1, u2 = self.Data
+    zeros = np.zeros_like(t)
+    y_u1 = self.simulate(p_opt, t, u1, zeros)
+    y_u2 = self.simulate(p_opt, t, zeros, u2)
+
+    r_square_u1 = 1 - (np.var(self.Data.y - y_u1) / np.var(self.Data.y))  # compute R-squared for u1 only
+    r_square_u2 = 1 - (np.var(self.Data.y - y_u2) / np.var(self.Data.y))  # compute R-squared for u2 only
+
+    rs = {'marginal': r_square, 'conditional': [r_square_u1, r_square_u2]}
+
+    self.result = Result(p_opt=p_opt, p_cov=None, p_val=None, r_square=rs, y_hat=y_hat, resid=resid, RMSE=rmse)
     p_cov = self.estimate_covariance(p_opt)
     p_val = self.pvalue(p_opt, p_cov)
-    self.result = Result(p_opt=p_opt, p_cov=p_cov, p_val=p_val, r_square=r_square, y_hat=y_hat, resid=resid, RMSE=rmse)
+    self.result = Result(p_opt=p_opt, p_cov=p_cov, p_val=p_val, r_square=rs, y_hat=y_hat, resid=resid, RMSE=rmse)
     ks = stats.kstest(resid, 'norm', (0, resid.std()))
     print(f"KS Test of Residuals: p={ks.pvalue:0.3f}")
 
@@ -412,7 +424,7 @@ class ProcessModel:
     pi95 = 1.96 * sem
 
     fig, ax1 = plt.subplots(figsize=(8,6))
-    plt.title(f"Model fit: Rsq = {res.r_square:0.3f}, RMSE = {res.RMSE:0.3f}")
+    plt.title(f"Model fit: Rsq = {res.r_square.marginal:0.3f}, RMSE = {res.RMSE:0.3f}")
 
     ax1.set_xlabel("time")
     ax1.set_ylabel("Change in output", color="tab:blue")
@@ -695,15 +707,21 @@ if __name__ == '__main__':
   # Generate sample data
   t, y, u  = np.ones((3,100))
   t = np.cumsum(t)
+
+  u1 = u.copy()
   u[:5] = 0
   u[60:] = 0
 
+  u1[:20] = 0
+  u1[40:] = 0
+
   # Test First Order Model
-  fom = FOPDT(t, y, u) # initialize the model
-  ys = fom.simulate(np.array([2., 5., 5.])) # simulate the model with given parameters
+  fom = FOPDT(t, y, u, u1) # initialize the model
+  ys = fom.simulate(np.array([2., 5., 5., 1., 3., 2.])) # simulate the model with given parameters
   noise = np.random.normal(0, 0.5, len(ys)) # add noise to the output
   yn = ys + noise
-  fom = FOPDT(t, yn, u) # initialize the model with noisy data
-  result = fom.fit_model(plot_result=True) # fit the model to the data and plot the results
-  print(f"Params: K: {result.p_opt[0]:0.3f}, tau: {result.p_opt[1]:0.3f}, theta: {result.p_opt[2]:0.3f}")
-  print(f"P-values: K: {result.p_val[0]:0.3f}, tau: {result.p_val[1]:0.3f}, theta: {result.p_val[2]:0.3f}")
+  fom = FOPDT(t, yn, u, u1) # initialize the model with noisy data
+  result = fom.fit_model(plot_result=False) # fit the model to the data and plot the results
+  print(result.r_square)
+  # print(f"Params: K: {result.p_opt[0]:0.3f}, tau: {result.p_opt[1]:0.3f}, theta: {result.p_opt[2]:0.3f}")
+  # print(f"P-values: K: {result.p_val[0]:0.3f}, tau: {result.p_val[1]:0.3f}, theta: {result.p_val[2]:0.3f}")

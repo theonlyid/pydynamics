@@ -10,4 +10,12 @@ setup(
     author_email="zaidi@icord.org",
     package_dir={"pydynamics": "src/pydynamics"},
     packages=["pydynamics"],
+    install_requires=[
+        "numpy",
+        "scipy",
+        "pandas",
+        "matplotlib",
+        'ipython',
+        'jupyter'
+    ],
 )

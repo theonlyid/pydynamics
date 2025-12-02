@@ -19,19 +19,29 @@ Version: 0.0.1
 
 0. Clone the repo by running `$git clone https://github.com/theonlyid/pydynamics.git`. This is the best option. Alternatively use Github Desktop to download the repo. You can also download the code using the browser, but this won't allow you to pull updates.
 
-1. Activate your preferred conda or pyenv environment.
+1. Create or activate your preferred conda or pyenv environment.
+
+    If you don't have Anaconda Installed, download and install [Anaconda](https://www.anaconda.com/download).
+
+    To create a new conda environment use the following code:
+
+    ```bash
+    $ conda create -n pydynamics python=3.10
+    $ conda activate pydynamics
+    ```
+
 
 2. Navigate to the project's root folder and install the package using pip:
 
-```bash
-$ pip install .
-```
+    ```bash
+    $ pip install .
+    ```
 
 3. Test the installation with Python:
 
-```bash
-$ python -c "import pydynamics; print('PyDynamics installed successfully')"
-```
+    ```bash
+    $ python -c "import pydynamics; print('PyDynamics installed successfully')"
+    ```
 
 
 For more detailed usage and examples, please refer to the documentation in [.\docs\pydynamics\index.html](docs/pydynamics/index.html).
