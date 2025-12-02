@@ -1,0 +1,39 @@
+challenge,start,end,duration,source
+hypoxia 18,153,222,70,Aim_HYP_18_MAP_aligned.csv
+NE,700,3472,2773,Aim_HYP_18_MAP_aligned.csv
+hypoxia 10,2301,2349,49,Aim_PreSCI_BSL_HYP_10to12_aligned.csv
+hypoxia 11,2941,2990,50,Aim_PreSCI_BSL_HYP_10to12_aligned.csv
+hypoxia 12,5182,5235,54,Aim_PreSCI_BSL_HYP_10to12_aligned.csv
+NE,7070,10091,3022,Aim_PreSCI_BSL_HYP_10to12_aligned.csv
+Hypoxia 6,49,112,64,Blitz_PostSCI_HYP_6_MapUp.csv
+NE,1061,6981,5921,Blitz_PostSCI_HYP_6_MapUp.csv
+Hypoxia 1,415,457,43,Blitz_PreSCI_HYP_1to2_MAPUp.csv
+Hypoxia 2,916,959,44,Blitz_PreSCI_HYP_1to2_MAPUp.csv
+BSL,1030,4315,3286,Blitz_PreSCI_HYP_1to2_MAPUp.csv
+NE,4524,10599,6076,Blitz_PreSCI_HYP_1to2_MAPUp.csv
+hypoxia 1,172,229,58,Cascade_HYP_1to2_MAP_aligned.csv
+hypoxia 2,395,449,55,Cascade_HYP_1to2_MAP_aligned.csv
+BSL,613,1492,880,Cascade_HYP_1to2_MAP_aligned.csv
+NE,1800,4819,3020,Cascade_HYP_1to2_MAP_aligned.csv
+hypoxia 3,179,223,45,Cascade_HYP_3_aligned.csv
+Hypoxia1,2031,2098,68,Xclean_HYP_1to3_aligned.csv
+Hypoxia 2,2430,2494,65,Xclean_HYP_1to3_aligned.csv
+Hypoxia 3,2926,2993,68,Xclean_HYP_1to3_aligned.csv
+Hypoxia 5,353,421,69,Xclean_HYP_5to7_aligned.csv
+Hypoxia 6,707,778,72,Xclean_HYP_5to7_aligned.csv
+Hypoxia 7,1070,1135,66,Xclean_HYP_5to7_aligned.csv
+Hypoxia 8,287,350,64,Xclean_HYP_8to10_aligned.csv
+Hypoxia 9,719,786,68,Xclean_HYP_8to10_aligned.csv
+Hypoxia 10,1140,1205,66,Xclean_HYP_8to10_aligned.csv
+hypoxia 12,284,345,62,Zest_HYP_12to14_aligned.csv
+hypoxia 13,980,1046,67,Zest_HYP_12to14_aligned.csv
+hypoxia 14,1648,1710,63,Zest_HYP_12to14_aligned.csv
+hypoxia 15,219,278,60,Zest_HYP_15to17_MAP_aligned.csv
+hypoxia 16,867,924,58,Zest_HYP_15to17_MAP_aligned.csv
+hypoxia 17,1531,1584,54,Zest_HYP_15to17_MAP_aligned.csv
+SNP,3758,5944,2187,Zest_HYP_15to17_MAP_aligned.csv
+NE,6000,9603,3604,Zest_HYP_15to17_MAP_aligned.csv
+hypoxia 1,263,327,65,DidiSeven_PreSCI.csv
+BSL,584,1512,929,DidiSeven_PreSCI.csv
+NE,1519,2839,1321,DidiSeven_PreSCI.csv
+NE,2650,5650,3001,Ecofresh_PreSCI.csv

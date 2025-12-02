@@ -21,7 +21,7 @@ from scipy import stats
 
 import pickle
 
-class data:
+class Data:
   """
   A data container for time series data.
 
@@ -30,13 +30,14 @@ class data:
     y (array-like):  Array of output data corresponding to the time points.
     u (array-like):  Array of input data corresponding to the time points.
   """
-  def __init__(self, ts, y, u):
+  def __init__(self, ts, y, u1, u2):
     self.ts = ts
     self.y = y
-    self.u = u
+    self.u1 = u1
+    self.u2 = u2
 
   def __iter__(self):
-    return iter([self.ts, self.y, self.u])
+    return iter([self.ts, self.y, self.u1, self.u2])
 
   def __repr__(self):
     return f"Timeseries data of length {len(self.ts)}"
@@ -79,11 +80,11 @@ class ProcessModel:
   Base model class that handles the fitting and plotting for various process models.
 
   Attributes:
-    data (data): An instance of the data class containing time (t), output (y), and input (u) data.
+    Data (Data): An instance of the Data class containing time (t), output (y), and input (u) data.
     uf (interp1d): Interpolated function of the input data.
   """
 
-  def __init__(self, t, y, u):
+  def __init__(self, t, y, u1, u2):
     """
     Initialize the process model with time, output, and input data.
 
@@ -92,8 +93,9 @@ class ProcessModel:
       y (array-like): Array of output data corresponding to the time points.
       u (array-like): Array of input data corresponding to the time points.
     """
-    self.data = data(t, y, u)
-    self.uf = interp1d(t, u)
+    self.Data = Data(t, y, u1, u2)
+    self.uf1 = interp1d(t, u1)
+    self.uf2 = interp1d(t, u2)
 
   def objective(self, params):
     """
@@ -109,7 +111,7 @@ class ProcessModel:
       float: The sum of squared differences between the simulated output and the actual data.
     """
     ym = self.simulate(params)
-    return np.sum((ym - self.data.y) ** 2)
+    return np.sum((ym - self.Data.y) ** 2)
 
   def _fit_params(self, init_guess=None):
     """
@@ -142,10 +144,10 @@ class ProcessModel:
       model predictions, residuals, and RMSE.
     """
     p_opt = self._fit_params()  # fit the model
-    y_hat = self.simulate(p_opt, self.data.ts, self.data.u)  # generate model predictions
-    resid = self.data.y - y_hat  # compute residuals
-    rmse = np.sqrt(np.sum(resid ** 2) / len(self.data.y))  # compute RMSE
-    r_square = 1 - (np.var(self.data.y - y_hat) / np.var(self.data.y))  # compute R-squared value
+    y_hat = self.simulate(p_opt, self.Data.ts, self.Data.u1, self.Data.u2)  # generate model predictions
+    resid = self.Data.y - y_hat  # compute residuals
+    rmse = np.sqrt(np.sum(resid ** 2) / len(self.Data.y))  # compute RMSE
+    r_square = 1 - (np.var(self.Data.y - y_hat) / np.var(self.Data.y))  # compute R-squared value
     self.result = Result(p_opt=p_opt, p_cov=None, p_val=None, r_square=r_square, y_hat=y_hat, resid=resid, RMSE=rmse)
     p_cov = self.estimate_covariance(p_opt)
     p_val = self.pvalue(p_opt, p_cov)
@@ -170,22 +172,37 @@ class ProcessModel:
     Returns:
       np.ndarray: The Jacobian matrix.
     """
-    K, tau, theta = params
-    uf = interp1d(self.data.ts, self.data.u, fill_value="extrapolate")
-    J = np.zeros((len(self.data.ts), 3))
-    dt = self.data.ts[1] - self.data.ts[0]
+    K1, tau1, theta1, K2, tau2, theta2 = params
+    uf1 = interp1d(self.Data.ts, self.Data.u1, fill_value="extrapolate")
+    uf2 = interp1d(self.Data.ts, self.Data.u2, fill_value="extrapolate")
 
-    for i, t in enumerate(self.data.ts):
-      if t - theta <= 0:
-        u_delayed = 0
-        u_derivative = 0
+    J = np.zeros((len(self.Data.ts), 6))
+    dt = self.Data.ts[1] - self.Data.ts[0]
+
+    for i, t in enumerate(self.Data.ts):
+      if t - theta1 <= 0:
+        u1_del = 0
+        du1_dt = 0
       else:
-        u_delayed = uf(t - theta)
-        u_derivative = (uf(t - theta + dt) - uf(t - theta)) / dt
+        u1_del = uf1(t - theta1)
+        du1_dt = (uf1(t - theta1 + dt) - uf1(t - theta1)) / dt
 
-      J[i, 0] = u_delayed / tau
-      J[i, 1] = -(K * u_delayed - self.data.y[i]) / tau ** 2
-      J[i, 2] = -(K / tau) * u_derivative
+      if t - theta2 <= 0:
+        u2_del = 0
+        du2_dt = 0
+      else:
+        u2_del = uf2(t - theta2)
+        du2_dt = (uf2(t - theta2 + dt) - uf2(t - theta2)) / dt
+
+      y_i = self.Data.y[i]
+
+      J[i, 0] = u1_del / tau1
+      J[i, 1] = -(K1 * u1_del - y_i) / tau1**2
+      J[i, 2] = -(K1 / tau1) * du1_dt
+
+      J[i, 3] = u2_del / tau2
+      J[i, 4] = -(K2 * u2_del - y_i) / tau2**2
+      J[i, 5] = -(K2 / tau2) * du2_dt
 
     return J
 
@@ -201,12 +218,11 @@ class ProcessModel:
       returns None and prints an error message.
     """
     res = self.result.resid
-    sigma2 = np.sum(res ** 2) / (len(self.data.ts) - len(params))
+    sigma2 = np.sum(res ** 2) / (len(self.Data.ts) - len(params))
     J = self.jacobian(params)
 
-    # Covariance matrix
     try:
-      C = sigma2 * np.linalg.inv(J.T @ J)
+      C = sigma2 * np.linalg.pinv(J.T @ J)
     except np.linalg.LinAlgError:
       print("Jacobian is singular. Cannot compute confidence intervals.")
       return None
@@ -226,9 +242,7 @@ class ProcessModel:
     se = np.sqrt(np.diag(p_cov))
     p_opt = self.result.p_opt
 
-    # 95% Confidence intervals
     confidence_intervals = []
-
     for i in range(len(p_opt)):
       lower = p_opt[i] - 1.96 * se[i]
       upper = p_opt[i] + 1.96 * se[i]
@@ -248,7 +262,7 @@ class ProcessModel:
     """
     se = np.sqrt(np.diag(p_cov))
     t_values = params / se
-    p_values = 2 * (1 - stats.t.cdf(np.abs(t_values), len(self.data.ts) - len(params)))
+    p_values = 2 * (1 - stats.t.cdf(np.abs(t_values), len(self.Data.ts) - len(params)))
     return p_values
 
   @staticmethod
@@ -297,29 +311,29 @@ class ProcessModel:
     the response using the lower and upper bounds of the confidence intervals. The plot includes the observed
     data points, the best fit model line, and a shaded area representing the 95% confidence interval.
     """
-    t = self.data.ts
-    u = self.data.u
-    y_true = self.data.y  # Observed data
+    t = self.Data.ts
+    u1 = self.Data.u1
+    u2 = self.Data.u2
+    y_true = self.Data.y
     y_pred = self.result.y_hat
-    params = self.result.p_opt
-    ci = self.ci_from_cov(self.result.p_cov)
 
-    # Simulate using confidence interval bounds
+    params = self.result.p_opt
+    ci = self.estimate_confidence_intervals(self.result.p_cov)
+
     params_lower = [ci[i][0] for i in range(len(params))]
     params_upper = [ci[i][1] for i in range(len(params))]
-    y_lower = self.simulate(params_lower, self.data.ts, self.data.u)
-    y_upper = self.simulate(params_upper, self.data.ts, self.data.u)
 
-    plt.figure(figsize=(8, 5))
-    plt.plot(t, y_true, 'ko', markersize=3, label="Observed data")
-    plt.plot(t, y_pred, 'r-', label="Best Fit Model")
-    plt.fill_between(t, y_lower, y_upper, color='red', alpha=0.3, label="95% Confidence Interval")
+    y_lower = self.simulate(params_lower, t, u1, u2)
+    y_upper = self.simulate(params_upper, t, u1, u2)
 
+    plt.figure(figsize=(8,5))
+    plt.plot(t, y_true, 'ko', ms=3)
+    plt.plot(t, y_pred, 'r-')
+    plt.fill_between(t, y_lower, y_upper, color='red', alpha=0.3)
     plt.xlabel("Time (s)")
     plt.ylabel("Response y(t)")
     plt.title("Model Fit with Confidence Interval")
-    plt.legend()
-    plt.grid(True)
+    plt.grid()
     plt.show()
 
   def step(self, params=None, step=1):
@@ -343,24 +357,33 @@ class ProcessModel:
     """
     if params is None:
       params = self.result.p_opt
-    taum = params[1]
+
+    tau1 = params[1]
+    tau2 = params[4]
+    taum = max(tau1, tau2)
+
     ts = np.arange(-taum, 5 * taum)
 
-    us = np.zeros((len(ts)))
-    us[np.int8(taum) + 1:] = step
+    u1 = np.zeros(len(ts))
+    u2 = np.zeros(len(ts))
 
-    y = self.simulate(params, ts, us)
+    u1[int(taum)+1:] = step
+    u2[int(taum)+1:] = step
+
+    y = self.simulate(params, ts, u1, u2)
+
     plt.figure()
-    plt.subplots(2, 1, sharex=True)
-
     plt.subplot(211)
     plt.plot(ts, y)
     plt.grid()
     plt.ylabel("Output")
+
     plt.subplot(212)
+    plt.plot(ts, u1, label="u1")
+    plt.plot(ts, u2, label="u2")
     plt.ylabel("Input")
-    plt.plot(ts, us)
     plt.grid()
+    plt.legend()
 
   def plot_results(self):
     """
@@ -382,36 +405,40 @@ class ProcessModel:
 
     The method also adjusts the layout to ensure the right y-label is not clipped.
     """
-    # gather variables
-    ts, ys, us = self.data
+    ts, ys, u1, u2 = self.Data
     res = self.result
 
-    # calculate prediction intervals
-    sem = np.sqrt(np.sum((res.resid) ** 2) / (len(ys) - 3))
+    sem = np.sqrt(np.sum((res.resid)**2) / (len(ys) - len(res.p_opt)))
     pi95 = 1.96 * sem
 
-    fig, ax1 = plt.subplots(figsize=(8, 6))
+    fig, ax1 = plt.subplots(figsize=(8,6))
     plt.title(f"Model fit: Rsq = {res.r_square:0.3f}, RMSE = {res.RMSE:0.3f}")
 
-    color = 'tab:blue'
-    ax1.set_xlabel('time')
-    ax1.set_ylabel('Change in output', color=color)
-    ax1.fill_between(ts, res.y_hat - pi95, res.y_hat + pi95, color='r', alpha=0.15, label='95% PI')
-    ax1.fill_between(ts, res.y_hat - sem, res.y_hat + sem, color='r', alpha=0.2, label='SE PI')
-    ax1.plot(ts, ys, 'b.', label='observations', alpha=0.6)
-    ax1.plot(ts, res.y_hat, 'k', linewidth=1.5, label='model')
-    ax1.tick_params(axis='y', labelcolor=color)
-    ax1.legend(loc='upper left')
+    ax1.set_xlabel("time")
+    ax1.set_ylabel("Change in output", color="tab:blue")
+    ax1.plot(ts, ys, 'b.', alpha=0.6)
+    ax1.plot(ts, res.y_hat, 'k', lw=1.5)
+
+    ax1.tick_params(axis='y', labelcolor='tab:blue')
     ax1.grid()
 
-    ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-    color = 'tab:gray'
-    ax2.set_ylabel('Change in input', color=color)  # we already handled the x-label with ax1
-    ax2.plot(ts, us, color=color)
-    ax2.tick_params(axis='y', labelcolor=color)
-    ax2.set_ylim([min(us) - (0.1 * max(us)), 10 * max(us)])
+    K1, tau1, theta1, K2, tau2, theta2 = res.p_opt
+    ax1.text(0.5, -0.15,
+             f"K1={K1:.3f}, tau1={tau1:.3f}, theta1={theta1:.3f}, "
+             f"K2={K2:.3f}, tau2={tau2:.3f}, theta2={theta2:.3f}",
+             transform=ax1.transAxes, ha="center", va="top")
 
-    fig.tight_layout()  # otherwise the right y-label is slightly clipped
+    ax2 = ax1.twinx()
+    ax2.set_ylabel("Change in inputs", color="tab:gray")
+    ax2.plot(ts, u1, '--', color='tab:gray', label="u1")
+    ax2.plot(ts, u2, '-', color='tab:orange', label="u2")
+    ax2.tick_params(axis='y', labelcolor='tab:gray')
+
+    u_min = min(np.min(u1), np.min(u2))
+    u_max = max(np.max(u1), np.max(u2))
+    ax2.set_ylim([u_min - 0.1 * u_max, 10 * u_max])
+
+    fig.tight_layout()
     plt.show()
 
   def diagnostics(self, plot=True):
@@ -446,11 +473,11 @@ class ProcessModel:
         - Autocorrelation of residual differences
         - Cross-correlation of residual differences with input
     """
-    t = self.data.ts
+    t = self.Data.ts
     dt = t[1] - t[0]
     resid = self.result.resid
     res_norm = resid / np.linalg.norm(resid)
-    u_norm = self.data.u / np.linalg.norm(self.data.u)
+    u_norm = self.Data.u / np.linalg.norm(self.Data.u)
 
     resd = np.diff(resid)
     resd_norm = np.diff(resd) / np.linalg.norm(np.diff(resd))
@@ -516,7 +543,7 @@ class FOPDT(ProcessModel):
     tmin (float):  The minimum time value in the time vector `t`.
 
   """
-  def __init__(self, t, y, u, params=np.ones((3,))):
+  def __init__(self, t, y, u1, u2, params=np.ones((6,))):
     """
     Initialize the FOPDT model with time, output, and input data.
     
@@ -526,12 +553,13 @@ class FOPDT(ProcessModel):
       u (array-like): Array of input data corresponding to the time points.
       params (array-like, optional): Default parameters for the FOPDT model. Default is np.ones((3,)).
     """
-    super(FOPDT, self).__init__(t, y, u)
+    super(FOPDT, self).__init__(t, y, u1, u2)
     self.params = params
-    self.bounds = [(-np.inf, np.inf), (0.1, np.inf), (0., np.inf)]
+    self.bounds = [(-np.inf, np.inf), (0.1, np.inf), (0., np.inf),
+                   (-np.inf, np.inf), (0.1, np.inf), (0., np.inf)]
     self.tmin = min(t)
 
-  def model(self, y, t, uf, K, tau, theta):
+  def model(self, y, t, uf1, uf2, K1, tau1, theta1, K2, tau2, theta2):
     """
     Computes the derivative of the system state `y` at time `t` for a given input function `uf`.
 
@@ -547,16 +575,23 @@ class FOPDT(ProcessModel):
       dy/dt (float): The derivative of the system state `y` at time `t`.
     """
     try:
-      if t - theta <= self.tmin:
-        um = 0
+      if t - theta1 <= self.tmin:
+        um1 = 0
       else:
-        um = uf(t - theta)
+        um1 = uf1(t - theta1)
+
+      if t - theta2 <= self.tmin:
+        um2 = 0
+      else:
+        um2 = uf2(t - theta2)
     except:
-      um = 0
-    dydt = (-(y) + K * (um)) / tau
+      um1 = 0
+      um2 = 0
+
+    dydt = ((-(y) + K1 * um1) / tau1) + ((-(y) + K2 * um2) / tau2)
     return dydt
 
-  def simulate(self, params=None, t=None, u=None):
+  def simulate(self, params=None, t=None, u1=None, u2=None):
     """
     Simulate the dynamic system using the provided parameters, time vector, and input signal.
 
@@ -570,21 +605,25 @@ class FOPDT(ProcessModel):
     """
     if params is None:
       params = self.params
-    K, tau, theta = params
+    K1, tau1, theta1, K2, tau2, theta2 = params
 
     if t is None:
-      t = self.data.ts
+      t = self.Data.ts
+    if u1 is None:
+      u1 = self.Data.u1
+    if u2 is None:
+      u2 = self.Data.u2
 
-    if u is None:
-      u = self.data.u
+    uf1 = interp1d(t, u1)
+    uf2 = interp1d(t, u2)
 
-    uf = interp1d(t, u)
     ym = np.zeros(len(t))
 
-    for i in range(len(t) - 1):
-      ts = [t[i], t[i + 1]]
-      y1 = odeint(self.model, ym[i], ts, args=(uf, K, tau, theta))[-1].item()
-      ym[i + 1] = y1
+    for i in range(len(t)-1):
+      ts = [t[i], t[i+1]]
+      y1 = odeint(self.model, ym[i], ts,
+                  args=(uf1, uf2, K1, tau1, theta1, K2, tau2, theta2))[-1].item()
+      ym[i+1] = y1
 
     return ym
 
@@ -635,7 +674,7 @@ class SOPDT(ProcessModel):
     Kp, taus, zeta, thetap = params
 
     uf = self.uf
-    t = self.data.t
+    t = self.Data.t
     # storage for model values
     xm = np.zeros((len(t), 2))  # model
     # initial condition
