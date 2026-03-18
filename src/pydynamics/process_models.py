@@ -212,6 +212,23 @@ class ProcessModel:
       return None
 
     return C
+  
+  @staticmethod
+  def _condition_number(J, sigma2):
+    """
+    Compute the condition number of the Fischer Information matrix.
+
+    Args:
+      J (np.ndarray): The Jacobian matrix.
+      sigma2 (float): The variance of the residuals - (sum of squared residuals / degrees of freedom).
+                      sigma2 = np.sum(res ** 2) / (len(self.data.ts) - len(params))
+
+    Returns:
+      float: The condition number of the FIM.
+    """
+    fim = (J.T @ J)/sigma2
+    return np.linalg.cond(fim)
+    
 
   def estimate_confidence_intervals(self, p_cov):
     """
