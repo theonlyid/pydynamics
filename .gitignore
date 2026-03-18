@@ -3,3 +3,4 @@ pydynamics.egg-info/
 data/
 test*
 src/pydynamics/__pycache__/
+.DS_Store
